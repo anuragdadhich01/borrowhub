@@ -35,16 +35,15 @@ jobs:
       - name: Build and Deploy Backend
         run: |
           # Define the ECR repository URI.
-          # This should be the URI you copied from your AWS ECR console.
           ECR_REPO_URI="260392369564.dkr.ecr.us-east-1.amazonaws.com/borrowhub"
 
-          # Build the SAM application
+          # Build the SAM application from the project root.
           sam build --template-file backend/template.yaml
 
-          # Deploy the SAM application.
-          # We now add the --image-repository parameter.
-          cd backend
+          # Deploy the SAM application from the project root.
+          # We tell 'deploy' where to find the built template.
           sam deploy \
+            --template-file .aws-sam/build/template.yaml \
             --no-confirm-changeset \
             --no-fail-on-empty-changeset \
             --stack-name BorrowHubb-API-Stack \
