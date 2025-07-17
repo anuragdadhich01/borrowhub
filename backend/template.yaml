@@ -1,6 +1,3 @@
-# This file is an AWS SAM template that defines the cloud infrastructure for BorrowHubb.
-# SAM (Serverless Application Model) is a framework for building serverless applications on AWS.
-
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
@@ -9,14 +6,14 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 10 # Set a default timeout for all Lambda functions
+    Timeout: 10
 
 Resources:
-  # 1. The AWS Lambda Function that will run our Go backend code
   BorrowHubbApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: .
+      # FIXED: CodeUri now points to the built artifact location.
+      CodeUri: .aws-sam/build/BorrowHubbApiFunction
       Handler: bootstrap
       Runtime: provided.al2
       Architectures:
@@ -27,8 +24,10 @@ Resources:
           Properties:
             Path: /{proxy+}
             Method: ANY
+    # This metadata tells 'sam build' how to build the code at the source path '.'
+    Metadata:
+      BuildMethod: makefile
 
-  # 2. The Amazon S3 Bucket that will host our static React frontend
   FrontendS3Bucket:
     Type: AWS::S3::Bucket
     Properties:
@@ -36,15 +35,12 @@ Resources:
         IndexDocument: index.html
         ErrorDocument: index.html
       BucketName: !Sub "borrowhub-frontend-${AWS::AccountId}"
-      # FIXED: This block is required to disable the default "Block Public Access" settings.
-      # This allows our bucket policy to be successfully attached.
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
         IgnorePublicAcls: false
         RestrictPublicBuckets: false
 
-  # 3. A Bucket Policy to allow public access to the S3 website content
   FrontendS3BucketPolicy:
     Type: AWS::S3::BucketPolicy
     Properties:

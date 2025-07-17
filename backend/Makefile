@@ -4,16 +4,12 @@
 
 # The name of our final executable
 BINARY_NAME=bootstrap
-# The name of our deployment package
-ZIP_NAME=bootstrap.zip
 
-# FIXED: The target name now matches what AWS SAM expects: build-<FunctionLogicalID>
+# This target compiles the Go application for the AWS Lambda Linux environment.
+# It no longer creates a zip file. SAM will handle that.
 build-BorrowHubbApiFunction:
-	# Compile the Go application for the AWS Lambda Linux environment
 	GOOS=linux GOARCH=amd64 go build -o $(BINARY_NAME) main.go
-	# Create a zip archive containing the executable
-	zip $(ZIP_NAME) $(BINARY_NAME)
 
-# The 'clean' target removes build artifacts
+# The 'clean' target removes the build artifact
 clean:
-	rm -f $(BINARY_NAME) $(ZIP_NAME)
+	rm -f $(BINARY_NAME)
