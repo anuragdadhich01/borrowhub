@@ -33,4 +33,6 @@ Outputs:
   # This section outputs important values after deployment
   BorrowHubbApiEndpoint:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHubb function"
-    Value: !Sub "https://\${ServerlessRestApi}.execute-api.\${AWS::Region}.amazonaws.com/Prod/"
+    # --- FIX IS HERE ---
+    # Changed from double quotes to single quotes to fix YAML parsing error
+    Value: !Sub 'https://\${ServerlessRestApi}.execute-api.\${AWS::Region}.amazonaws.com/Prod/'
