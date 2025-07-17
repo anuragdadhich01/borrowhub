@@ -1,0 +1,10 @@
+# Use the official AWS Lambda base image for Go
+FROM public.ecr.aws/lambda/provided:al2
+
+# Copy the compiled Go binary from the build stage.
+# SAM will build the Go application and place the executable in the build directory.
+# We then copy it into the final image at the location Lambda expects.
+COPY .aws-sam/build/BorrowHubbFunction/bootstrap /var/runtime/
+
+# Set the command that Lambda will run. This points to the executable.
+CMD [ "/var/runtime/bootstrap" ]
