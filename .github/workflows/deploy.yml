@@ -38,13 +38,10 @@ jobs:
           # Run sam build from the root, specifying the template file path
           sam build --template-file backend/template.yaml
 
-          # Run sam deploy from the root. It will automatically find the built artifacts.
-          sam deploy \
-            --stack-name BorrowHubb-API-Stack \
-            --s3-bucket aws-sam-cli-managed-default-samclisourcebucket-ramdczmoe5jg \
-            --capabilities CAPABILITY_IAM \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset
+          # Run sam deploy from the root, but change directory into backend first
+          # This ensures deploy can find the built artifacts correctly
+          cd backend
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubb-API-Stack --s3-bucket aws-sam-cli-managed-default-samclisourcebucket-ramdczmoe5jg --capabilities CAPABILITY_IAM
       # --- END OF FIX ---
 
       - name: Get API Gateway URL
