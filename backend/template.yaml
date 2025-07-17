@@ -1,38 +1,60 @@
-# This is an AWS SAM template. It defines the infrastructure for our serverless backend.
+# This file is an AWS SAM template that defines the cloud infrastructure for BorrowHubb.
+# SAM (Serverless Application Model) is a framework for building serverless applications on AWS.
+
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  borrowhub
-
-  This template defines the AWS resources for the BorrowHubb backend,
-  including the API Gateway and the Lambda function.
+  BorrowHubb API
+  This template defines the backend API function and the frontend S3 bucket.
 
 Globals:
   Function:
-    Timeout: 30 # Set a default timeout for all Lambda functions
+    Timeout: 10 # Set a default timeout for all Lambda functions
 
 Resources:
-  # This defines our main Lambda function
-  BorrowHubbFunction:
+  # 1. The AWS Lambda Function that will run our Go backend code
+  BorrowHubbApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      CodeUri: . # The source code is in the current directory (the 'backend' folder)
-      Handler: bootstrap # Use the 'provided.al2' runtime for Go
+      CodeUri: .
+      Handler: bootstrap
       Runtime: provided.al2
+      # FIXED: Changed architecture to x86_64 to match the GitHub Actions build environment
       Architectures:
         - x86_64
       Events:
-        # This configures API Gateway to trigger the Lambda function
-        BorrowHubbApi:
+        ApiEvent:
           Type: Api
           Properties:
-            Path: /{proxy+} # Any path will be sent to the Lambda
-            Method: ANY # Any HTTP method (GET, POST, etc.)
+            Path: /{proxy+}
+            Method: ANY
+
+  # 2. The Amazon S3 Bucket that will host our static React frontend
+  FrontendS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      BucketName: !Sub "borrowhub-frontend-${AWS::AccountId}"
+
+  # 3. A Bucket Policy to allow public access to the S3 website content
+  FrontendS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FrontendS3Bucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub "arn:aws:s3:::${FrontendS3Bucket}/*"
 
 Outputs:
-  # This section outputs important values after deployment
   BorrowHubbApiEndpoint:
-    Description: "API Gateway endpoint URL for Prod stage for BorrowHubb function"
-    # --- FIX IS HERE ---
-    # Changed from double quotes to single quotes to fix YAML parsing error
-    Value: !Sub 'https://\${ServerlessRestApi}.execute-api.\${AWS::Region}.amazonaws.com/Prod/'
+    Description: "API Gateway endpoint URL for our service"
+    Value: !Sub "https://api.${AWS::Region}.amazonaws.com/Prod/{proxy+}"
+  FrontendURL:
+    Description: "URL for the hosted frontend website"
+    Value: !GetAtt FrontendS3Bucket.WebsiteURL
