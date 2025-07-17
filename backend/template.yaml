@@ -3,44 +3,53 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   borrowhub
 
+  Sample SAM Template for borrowhub
+
 Globals:
   Function:
-    Timeout: 10
-    Architectures:
-      - arm64
+    Timeout: 5
+    MemorySize: 128
 
 Resources:
-  BorrowHubbApi:
-    Type: AWS::Serverless::HttpApi
-    Properties:
-      CorsConfiguration:
-        AllowMethods:
-          - GET
-          - POST
-          - OPTIONS
-        AllowOrigins:
-          - "*"
-        AllowHeaders:
-          - Content-Type
-          - Authorization
-
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
-    Metadata:
-      BuildMethod: makefile
     Properties:
-      CodeUri: . 
-      Handler: bootstrap
-      Runtime: provided.al2
+      PackageType: Image
+      Architectures:
+        - x86_64
       Events:
-        ApiEvent:
-          Type: HttpApi
+        BorrowHubbApi:
+          Type: Api
           Properties:
-            ApiId: !Ref BorrowHubbApi
             Path: /{proxy+}
-            Method: ANY
+            Method: any
+    Metadata:
+      DockerTag: go1.x-v1
+      DockerContext: ./
+      Dockerfile: Dockerfile
+
+  # --- NEW: Explicitly define the API Gateway ---
+  ApplicationApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      # This creates a stage named '$default' which does not appear in the URL path
+      StageName: $default
+      # Connect this API definition to our Lambda function
+      DefinitionBody:
+        swagger: '2.0'
+        info:
+          title: !Ref AWS::StackName
+        paths:
+          /{proxy+}:
+            x-amazon-apigateway-any-method:
+              x-amazon-apigateway-integration:
+                uri: !Sub "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BorrowHubbFunction.Arn}/invocations"
+                passthroughBehavior: "when_no_match"
+                httpMethod: "POST"
+                type: "aws_proxy"
 
 Outputs:
   BorrowHubbApi:
     Description: "API Gateway endpoint URL for the BorrowHubb function"
-    Value: !Sub "https://${BorrowHubbApi}.execute-api.${AWS::Region}.amazonaws.com/"
+    # --- UPDATED: Get the URL from our new explicit API ---
+    Value: !Sub "https://${ApplicationApi}.execute-api.${AWS::Region}.amazonaws.com/"
