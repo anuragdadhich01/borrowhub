@@ -76,18 +76,15 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Frontend Dependencies
+      - name: Install Frontend Dependencies with Yarn
         run: |
           cd frontend
-          npm install
+          yarn install
 
-      - name: Build Frontend
+      - name: Build Frontend with Yarn
         run: |
           cd frontend
-          # FIX: Explicitly grant execute permission to the vite script
-          chmod +x ./node_modules/.bin/vite
-          # Run the build using the package script
-          npm run build
+          yarn build
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
