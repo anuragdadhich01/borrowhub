@@ -84,7 +84,10 @@ jobs:
       - name: Build Frontend
         run: |
           cd frontend
-          npm run build # <-- This is the fix
+          # FIX: Explicitly grant execute permission to the vite script
+          chmod +x ./node_modules/.bin/vite
+          # Run the build using the package script
+          npm run build
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
