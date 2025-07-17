@@ -1,0 +1,36 @@
+# This is an AWS SAM template. It defines the infrastructure for our serverless backend.
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  borrowhub
+
+  This template defines the AWS resources for the BorrowHubb backend,
+  including the API Gateway and the Lambda function.
+
+Globals:
+  Function:
+    Timeout: 30 # Set a default timeout for all Lambda functions
+
+Resources:
+  # This defines our main Lambda function
+  BorrowHubbFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: . # The source code is in the current directory (the 'backend' folder)
+      Handler: bootstrap # Use the 'provided.al2' runtime for Go
+      Runtime: provided.al2
+      Architectures:
+        - x86_64
+      Events:
+        # This configures API Gateway to trigger the Lambda function
+        BorrowHubbApi:
+          Type: Api
+          Properties:
+            Path: /{proxy+} # Any path will be sent to the Lambda
+            Method: ANY # Any HTTP method (GET, POST, etc.)
+
+Outputs:
+  # This section outputs important values after deployment
+  BorrowHubbApiEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage for BorrowHubb function"
+    Value: !Sub "https://\${ServerlessRestApi}.execute-api.\${AWS::Region}.amazonaws.com/Prod/"
