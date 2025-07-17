@@ -2,55 +2,65 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/awslabs/aws-lambda-go-api-proxy/gin"
+	ginadapter "github.com/awslabs/aws-lambda-go-api-proxy/gin"
+	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 )
 
-// ginLambda is a global variable that holds our Gin API proxy.
-// It's initialized once in the init() function.
 var ginLambda *ginadapter.GinLambda
 
-// Item represents a simple data structure for our items.
+// Item represents a generic item in our application
 type Item struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
-// init runs before the main function. It sets up the Gin router.
-func init() {
-	// 1. Initialize a new Gin router.
-	router := gin.Default()
+// In-memory "database" for demonstration
+var items = []Item{
+	{ID: "1", Name: "Laptop"},
+	{ID: "2", Name: "Monitor"},
+	{ID: "3", Name: "Keyboard"},
+}
 
-	// 2. Define a route for GET /items
-	// This is the endpoint our frontend will call.
-	router.GET("/items", func(c *gin.Context) {
-		// Create a slice of Item structs.
-		items := []Item{
-			{ID: "1", Name: "Laptop"},
-			{ID: "2", Name: "Keyboard"},
-			{ID: "3", Name: "Mouse"},
-		}
-		// Respond with the list of items as JSON.
-		c.JSON(http.StatusOK, items)
+// getItems responds with the list of all items as JSON.
+func getItems(c *gin.Context) {
+	c.IndentedJSON(http.StatusOK, items)
+}
+
+func main() {
+	log.Println("Starting up Gin server")
+	r := gin.Default()
+
+	// Configure CORS to allow requests from any origin
+	r.Use(cors.Default())
+
+	r.GET("/items", getItems)
+
+	// Add a simple health check endpoint
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "UP"})
 	})
 
-	// 3. Create the Gin Lambda adapter.
-	// This adapter translates API Gateway requests into a format Gin can understand.
-	ginLambda = ginadapter.New(router)
+	ginLambda = ginadapter.New(r)
+
+	// Check if running in Lambda environment
+	if ginLambda != nil {
+		log.Println("Running on AWS Lambda")
+		lambda.Start(Handler)
+	} else {
+		log.Println("Running locally")
+		if err := r.Run(":8080"); err != nil {
+			log.Fatalf("Failed to run server: %v", err)
+		}
+	}
 }
 
-// Handler is the primary function that Lambda will invoke.
-// It receives the API Gateway request and passes it to our Gin adapter.
+// Handler is the Lambda function handler
 func Handler(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	return ginLambda.ProxyWithContext(ctx, req)
-}
-
-// main is the entry point for the Lambda function.
-// It starts the Lambda handler.
-func main() {
-	lambda.Start(Handler)
 }

@@ -41,7 +41,6 @@ jobs:
           sam build --template-file backend/template.yaml
 
           # Deploy the SAM application from the project root.
-          # We tell 'deploy' where to find the built template.
           sam deploy \
             --template-file .aws-sam/build/template.yaml \
             --no-confirm-changeset \

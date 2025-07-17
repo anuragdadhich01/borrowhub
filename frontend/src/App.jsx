@@ -1,57 +1,60 @@
-import { useState, useEffect } from 'react';
-import './App.css';
+import { useState, useEffect } from 'react'
+import './App.css'
 
 function App() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    // The base URL is injected by the Vite build process from the workflow
-    const apiUrl = `${import.meta.env.VITE_API_BASE_URL}items`;
+  // The VITE_API_BASE_URL is injected by the GitHub Actions workflow
+  const apiUrl = import.meta.env.VITE_API_BASE_URL;
 
-    fetch(apiUrl)
-      .then(response => {
+  useEffect(() => {
+    if (!apiUrl) {
+      setError("API URL is not configured. Deployment may be incomplete.");
+      setLoading(false);
+      return;
+    }
+
+    async function fetchItems() {
+      try {
+        setLoading(true);
+        const response = await fetch(apiUrl);
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
-        return response.json();
-      })
-      .then(data => {
+        const data = await response.json();
         setItems(data);
         setError(null);
-      })
-      .catch(err => {
-        setError(err.message);
-        setItems([]);
-      })
-      .finally(() => {
+      } catch (e) {
+        setError(`Failed to fetch items: ${e.message}`);
+        console.error(e);
+      } finally {
         setLoading(false);
-      });
-  }, []);
+      }
+    }
+
+    fetchItems();
+  }, [apiUrl]);
 
   return (
     <>
-      <h1>BorrowHubb</h1>
-      <p className="read-the-docs">
-        A place to borrow and lend items with your community.
-      </p>
-
+      <h1>Welcome to BorrowHub</h1>
       <div className="card">
-        {loading && <p>Loading items...</p>}
-        {error && <p className="error-message">Error: {error}</p>}
+        <h2>Available Items</h2>
+        {loading && <p>Loading...</p>}
+        {error && <p className="error">{error}</p>}
         {!loading && !error && (
           <ul>
             {items.map(item => (
-              <li key={item.id}>
-                <strong>{item.name}</strong>: {item.description}
-              </li>
+              <li key={item.id}>{item.Name}</li>
             ))}
           </ul>
         )}
+        {!apiUrl && <p className="error">Note: The backend API URL is missing. Please check the deployment status.</p>}
       </div>
     </>
-  );
+  )
 }
 
-export default App;
+export default App
