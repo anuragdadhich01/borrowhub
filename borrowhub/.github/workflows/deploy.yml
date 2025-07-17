@@ -1,0 +1,65 @@
+# This file defines the CI/CD (Continuous Integration/Continuous Deployment) pipeline for BorrowHubb.
+# It uses GitHub Actions to automatically build and deploy the application.
+
+name: Deploy BorrowHubb to AWS
+
+# This workflow runs on any push to the 'main' branch
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  # The 'deploy' job contains all the steps for building and deploying
+  deploy:
+    runs-on: ubuntu-latest # Use the latest version of Ubuntu as the runner environment
+    steps:
+      # 1. Check out the source code from the repository
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Set up Go environment
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22' # Specify the Go version
+
+      # 3. Set up Node.js environment for the frontend
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20' # Specify the Node.js version
+          cache: 'npm' # Cache npm dependencies for faster builds
+          cache-dependency-path: frontend/package-lock.json
+
+      # 4. Configure AWS Credentials
+      # This step securely uses secrets stored in GitHub to configure AWS access
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1 # Specify your desired AWS region
+
+      # --- Backend Deployment Steps ---
+      - name: Build and Deploy Backend with AWS SAM
+        run: |
+          # Navigate into the backend directory
+          cd backend
+          # sam build compiles the Go code and prepares it for Lambda
+          # sam deploy pushes the built application to AWS CloudFormation
+          sam build
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+
+      # --- Frontend Deployment Steps ---
+      - name: Build and Deploy Frontend
+        run: |
+          # Navigate into the frontend directory
+          cd frontend
+          # Install dependencies
+          npm install
+          # Build the React app into static HTML/CSS/JS files
+          npm run build
+          # Sync the built files (from the 'dist' folder) to the S3 bucket
+          # The --delete flag removes old files from the bucket
+          aws s3 sync ./dist s3://borrowhub-frontend-${{ secrets.AWS_ACCOUNT_ID }} --delete
