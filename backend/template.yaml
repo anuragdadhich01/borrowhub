@@ -18,41 +18,28 @@ Resources:
       Architectures:
         - x86_64
       Events:
-        BorrowHubbApi:
+        # This event block tells SAM to create an API Gateway,
+        # configure it as a proxy, and connect it to this Lambda.
+        BorrowHubbApiEvent:
           Type: Api
           Properties:
             Path: /{proxy+}
-            Method: any
+            Method: ANY
+            # This creates a stage named 'Prod'.
+            RestApiId:
+              Ref: ApplicationApi
     Metadata:
       DockerTag: go1.x-v1
       DockerContext: ./
       Dockerfile: Dockerfile
 
-  # --- NEW: Explicitly define the API Gateway ---
+  # Explicitly define the API so we can name the stage
   ApplicationApi:
     Type: AWS::Serverless::Api
     Properties:
-      # This creates a stage named '$default' which does not appear in the URL path
-      StageName: $default
-      # Connect this API definition to our Lambda function
-      DefinitionBody:
-        swagger: '2.0'
-        info:
-          title: 
-            Fn::Ref: AWS::StackName
-        paths:
-            x-amazon-apigateway-any-method:
-              x-amazon-apigateway-integration:
-                uri:
-                  Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${BorrowHubbFunction.Arn}/invocations"
-                passthroughBehavior: "when_no_match"
-                httpMethod: "POST"
-                httpMethod: "POST"
-                type: "aws_proxy"
+      StageName: Prod
+
+Outputs:
   BorrowHubbApi:
-    Description: "API Gateway endpoint URL for the BorrowHubb function"
-    # --- UPDATED: Get the URL from our new explicit API ---
-    Value:
-      Fn::Sub: "https://${ApplicationApi}.execute-api.${AWS::Region}.amazonaws.com/"
-    # --- UPDATED: Get the URL from our new explicit API ---
-    Value: !Sub "https://${ApplicationApi}.execute-api.${AWS::Region}.amazonaws.com/"
+    Description: "API Gateway endpoint URL for Prod stage for Borrow Hubb function"
+    Value: !Sub "https://${ApplicationApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/items"
