@@ -3,8 +3,6 @@ Transform: AWS::Serverless-2016-10-31
 Description: >
   borrowhub
 
-  Sample SAM Template for borrowhub
-
 Globals:
   Function:
     Timeout: 10
@@ -14,9 +12,14 @@ Globals:
 Resources:
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
+    # --- CHANGE #1 IS HERE ---
+    # This Metadata section tells SAM how to build your function.
+    Metadata:
+      BuildMethod: makefile
     Properties:
-      # The CodeUri will point to the zip file created by the Makefile
-      CodeUri: build/main.zip
+      # This now correctly points to your source code directory.
+      # SAM will run the build in here.
+      CodeUri: . 
       Handler: bootstrap
       Runtime: provided.al2
       Events:
@@ -25,13 +28,10 @@ Resources:
           Properties:
             Path: /{proxy+}
             Method: any
-            # --- THE FIX IS HERE ---
-            # This section configures CORS to allow your frontend to call the API.
             Cors:
               AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
               AllowHeaders: "'Content-Type,Authorization'"
-              AllowOrigin: "'*'" # This allows any website to call your API.
-            # --- END OF FIX ---
+              AllowOrigin: "'*'"
 
 Outputs:
   BorrowHubbApi:
