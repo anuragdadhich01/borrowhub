@@ -1,8 +1,19 @@
-# This Makefile tells AWS SAM how to build our Go function.
-# The target name 'build-BorrowHubbFunction' is derived from the function's
-# logical ID in template.yaml.
+# Makefile for the Go backend of BorrowHubb
 
-build-BorrowHubbFunction:
-	# This command compiles main.go into an executable named 'bootstrap'.
-	# GOOS=linux and GOARCH=amd64 ensures it's compiled for the Lambda environment.
-	GOOS=linux GOARCH=amd64 go build -o bootstrap main.go
+.PHONY: build clean
+
+# The name of our final executable
+BINARY_NAME=bootstrap
+# The name of our deployment package
+ZIP_NAME=bootstrap.zip
+
+# The 'build' target compiles the Go code and creates the zip file
+build:
+	# Compile the Go application for the AWS Lambda Linux environment
+	GOOS=linux GOARCH=amd64 go build -o $(BINARY_NAME) main.go
+	# Create a zip archive containing the executable
+	zip $(ZIP_NAME) $(BINARY_NAME)
+
+# The 'clean' target removes build artifacts
+clean:
+	rm -f $(BINARY_NAME) $(ZIP_NAME)
