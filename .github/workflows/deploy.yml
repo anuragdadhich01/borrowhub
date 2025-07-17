@@ -79,12 +79,12 @@ jobs:
       - name: Install Frontend Dependencies
         run: |
           cd frontend
-          npm install # <-- This is the fix
+          npm install
 
       - name: Build Frontend
         run: |
           cd frontend
-          ./node_modules/.bin/vite build
+          npm run build # <-- This is the fix
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
