@@ -23,27 +23,29 @@ jobs:
           role-to-assume: arn:aws:iam::260392369564:role/GitHubAction-AssumeRole-BorrowHubb
           aws-region: us-east-1
 
-      - name: Set up Go
+      - name: Set up Go and Cache Dependencies
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('backend/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+          cache-dependency-path: backend/go.sum
 
       - name: Install SAM CLI
         run: pip install aws-sam-cli
 
+      # --- THE FIX IS HERE ---
       - name: Build and Deploy Backend
         run: |
-          cd backend
-          sam build
-          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubb-API-Stack --s3-bucket aws-sam-cli-managed-default-samclisourcebucket-ramdczmoe5jg --capabilities CAPABILITY_IAM
+          # Run sam build from the root, specifying the template file path
+          sam build --template-file backend/template.yaml
+
+          # Run sam deploy from the root. It will automatically find the built artifacts.
+          sam deploy \
+            --stack-name BorrowHubb-API-Stack \
+            --s3-bucket aws-sam-cli-managed-default-samclisourcebucket-ramdczmoe5jg \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset
+      # --- END OF FIX ---
 
       - name: Get API Gateway URL
         id: get-api-url
@@ -72,20 +74,17 @@ jobs:
         with:
           node-version: '20'
 
-      # --- THE FIX IS HERE ---
-      - name: Install Frontend Dependencies with Clean Install
+      - name: Install Frontend Dependencies
         run: |
           cd frontend
           npm ci
 
-      - name: Build Frontend Directly
+      - name: Build Frontend
         run: |
           cd frontend
-          # Execute vite directly from its path to avoid permission issues
           ./node_modules/.bin/vite build
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
-      # --- END OF FIX ---
 
       - name: Deploy Frontend to S3
         run: |
