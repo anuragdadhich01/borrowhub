@@ -10,30 +10,43 @@ Globals:
       - arm64
 
 Resources:
+  # --- CHANGE #1: Define the API as its own resource ---
+  BorrowHubbHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      # This is the correct location for the CORS configuration
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowOrigins:
+          - "*" # Allows all domains
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+
+  # --- CHANGE #2: Define the function ---
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
-    # --- CHANGE #1 IS HERE ---
-    # This Metadata section tells SAM how to build your function.
     Metadata:
       BuildMethod: makefile
     Properties:
-      # This now correctly points to your source code directory.
-      # SAM will run the build in here.
       CodeUri: . 
       Handler: bootstrap
       Runtime: provided.al2
       Events:
+        # Link the function to ANY request on the API we defined above
         ApiEvent:
-          Type: Api
+          Type: HttpApi
           Properties:
             Path: /{proxy+}
-            Method: any
-            Cors:
-              AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-              AllowHeaders: "'Content-Type,Authorization'"
-              AllowOrigin: "'*'"
+            Method: ANY
+            ApiId:
+              Fn::Ref: BorrowHubbHttpApi
 
 Outputs:
   BorrowHubbApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHubb function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+    Value:
+      Fn::Sub: "https://${BorrowHubbHttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
