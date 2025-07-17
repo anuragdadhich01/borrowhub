@@ -79,7 +79,7 @@ jobs:
       - name: Install Frontend Dependencies
         run: |
           cd frontend
-          npm ci
+          npm install # <-- This is the fix
 
       - name: Build Frontend
         run: |
