@@ -6,53 +6,51 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const API_URL = import.meta.env.VITE_API_BASE_URL;
-
   useEffect(() => {
-    // Make sure this endpoint matches your Go API, e.g., /items
-    const endpoint = '/items';
+    // The base URL is injected by the Vite build process from the workflow
+    const apiUrl = `${import.meta.env.VITE_API_BASE_URL}items`;
 
-    fetch(`${API_URL}${endpoint}`)
+    fetch(apiUrl)
       .then(response => {
         if (!response.ok) {
           throw new Error(`HTTP error! status: ${response.status}`);
         }
         return response.json();
       })
-      .then(responseData => {
-        // Assuming the API returns an array of items
-        setItems(responseData || []);
-        setLoading(false);
+      .then(data => {
+        setItems(data);
+        setError(null);
       })
-      .catch(error => {
-        setError(error);
+      .catch(err => {
+        setError(err.message);
+        setItems([]);
+      })
+      .finally(() => {
         setLoading(false);
       });
-  }, [API_URL]);
+  }, []);
 
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <h1>BorrowHubb</h1>
-        <p>A place to borrow and lend items with your community.</p>
-      </header>
-      <main>
-        {loading && <p className="loading-message">Loading items...</p>}
-        {error && <p className="error-message">Error: {error.message}</p>}
+    <>
+      <h1>BorrowHubb</h1>
+      <p className="read-the-docs">
+        A place to borrow and lend items with your community.
+      </p>
+
+      <div className="card">
+        {loading && <p>Loading items...</p>}
+        {error && <p className="error-message">Error: {error}</p>}
         {!loading && !error && (
-          <div className="items-grid">
+          <ul>
             {items.map(item => (
-              <div key={item.id} className="item-card">
-                <h2>{item.name}</h2>
-                <p className={item.borrowed ? 'status-borrowed' : 'status-available'}>
-                  {item.borrowed ? 'Borrowed' : 'Available'}
-                </p>
-              </div>
+              <li key={item.id}>
+                <strong>{item.name}</strong>: {item.description}
+              </li>
             ))}
-          </div>
+          </ul>
         )}
-      </main>
-    </div>
+      </div>
+    </>
   );
 }
 
