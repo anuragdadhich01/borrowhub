@@ -1,14 +1,14 @@
 # Makefile for the Go backend of BorrowHubb
 
-.PHONY: build clean
+.PHONY: build-BorrowHubbApiFunction clean
 
 # The name of our final executable
 BINARY_NAME=bootstrap
 # The name of our deployment package
 ZIP_NAME=bootstrap.zip
 
-# The 'build' target compiles the Go code and creates the zip file
-build:
+# FIXED: The target name now matches what AWS SAM expects: build-<FunctionLogicalID>
+build-BorrowHubbApiFunction:
 	# Compile the Go application for the AWS Lambda Linux environment
 	GOOS=linux GOARCH=amd64 go build -o $(BINARY_NAME) main.go
 	# Create a zip archive containing the executable
