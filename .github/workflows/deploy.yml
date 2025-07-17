@@ -29,10 +29,7 @@ jobs:
       - name: Build and Deploy Backend with AWS SAM
         run: |
           cd backend
-          # This command now runs the 'build' target in our Makefile
-          # which creates bootstrap.zip
           sam build --beta-features
-          # We now deploy the pre-packaged zip file
           sam deploy --stack-name BorrowHubb-API-Stack \
                      --capabilities CAPABILITY_IAM \
                      --resolve-s3 \
@@ -43,5 +40,7 @@ jobs:
         run: |
           cd frontend
           npm install
+          # FIXED: Add execute permissions to the vite binary before running it.
+          chmod +x ./node_modules/.bin/vite
           npm run build
           aws s3 sync ./dist s3://borrowhub-frontend-${{ secrets.AWS_ACCOUNT_ID }} --delete
