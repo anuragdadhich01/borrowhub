@@ -46,8 +46,8 @@ jobs:
         run: |
           cd backend
           sam build
-          # FIXED COMMAND: Added --stack-name and --capabilities
-          sam deploy --stack-name BorrowHubb-API-Stack --capabilities CAPABILITY_IAM --no-confirm-changeset --no-fail-on-empty-changeset
+          # FIXED COMMAND: Added --resolve-s3 to automatically manage the deployment bucket
+          sam deploy --stack-name BorrowHubb-API-Stack --capabilities CAPABILITY_IAM --resolve-s3 --no-confirm-changeset --no-fail-on-empty-changeset
 
       # --- Frontend Deployment Steps ---
       - name: Build and Deploy Frontend
