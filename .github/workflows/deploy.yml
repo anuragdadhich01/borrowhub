@@ -15,13 +15,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # --- FIX IS HERE ---
-      # We are telling the action to look inside the 'backend' folder for our Go dependencies.
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache-dependency-path: backend/go.sum # Specify path to go.sum for caching
+          cache-dependency-path: backend/go.sum
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -37,11 +35,13 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      # --- FIX IS HERE ---
+      # We are adding '-t template.yaml' to be explicit.
       - name: Build and Deploy Backend with AWS SAM
         run: |
           cd backend
-          sam build
-          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset
+          sam build -t template.yaml
+          sam deploy -t template.yaml --no-confirm-changeset --no-fail-on-empty-changeset
 
       - name: Build and Deploy Frontend
         run: |
