@@ -10,6 +10,20 @@ Globals:
       - arm64
 
 Resources:
+  BorrowHubbApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      CorsConfiguration:
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -19,29 +33,14 @@ Resources:
       Handler: bootstrap
       Runtime: provided.al2
       Events:
-        # Define the API implicitly here
         ApiEvent:
-          Type: HttpApi # Use HttpApi for v2 (faster, cheaper)
+          Type: HttpApi
           Properties:
-            # --- THE FIX IS HERE ---
-            # This is the correct structure for CORS on an implicit HttpApi
-            CorsConfiguration:
-              AllowMethods:
-                - GET
-                - POST
-                - OPTIONS
-              AllowOrigins:
-                - "*"
-              AllowHeaders:
-                - Content-Type
-                - Authorization
-            # --- END OF FIX ---
-            # The function will be triggered for any path and method
+            ApiId: !Ref BorrowHubbApi
             Path: /{proxy+}
             Method: ANY
 
 Outputs:
   BorrowHubbApi:
     Description: "API Gateway endpoint URL for the BorrowHubb function"
-    # The !Sub function constructs the final URL for us
-    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/"Prod/{proxy+}
+    Value: !Sub "https://${BorrowHubbApi}.execute-api.${AWS::Region}.amazonaws.com/"
