@@ -10,23 +10,6 @@ Globals:
       - arm64
 
 Resources:
-  # --- CHANGE #1: Define the API as its own resource ---
-  BorrowHubbHttpApi:
-    Type: AWS::Serverless::HttpApi
-    Properties:
-      # This is the correct location for the CORS configuration
-      CorsConfiguration:
-        AllowMethods:
-          - GET
-          - POST
-          - OPTIONS
-        AllowOrigins:
-          - "*" # Allows all domains
-        AllowHeaders:
-          - Content-Type
-          - Authorization
-
-  # --- CHANGE #2: Define the function ---
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -36,17 +19,29 @@ Resources:
       Handler: bootstrap
       Runtime: provided.al2
       Events:
-        # Link the function to ANY request on the API we defined above
+        # Define the API implicitly here
         ApiEvent:
-          Type: HttpApi
+          Type: HttpApi # Use HttpApi for v2 (faster, cheaper)
           Properties:
+            # --- THE FIX IS HERE ---
+            # This is the correct structure for CORS on an implicit HttpApi
+            CorsConfiguration:
+              AllowMethods:
+                - GET
+                - POST
+                - OPTIONS
+              AllowOrigins:
+                - "*"
+              AllowHeaders:
+                - Content-Type
+                - Authorization
+            # --- END OF FIX ---
+            # The function will be triggered for any path and method
             Path: /{proxy+}
             Method: ANY
-            ApiId:
-              Fn::Ref: BorrowHubbHttpApi
 
 Outputs:
   BorrowHubbApi:
-    Description: "API Gateway endpoint URL for Prod stage for BorrowHubb function"
-    Value:
-      Fn::Sub: "https://${BorrowHubbHttpApi}.execute-api.${AWS::Region}.amazonaws.com/"
+    Description: "API Gateway endpoint URL for the BorrowHubb function"
+    # The !Sub function constructs the final URL for us
+    Value: !Sub "https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com/"Prod/{proxy+}
