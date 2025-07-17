@@ -9,10 +9,9 @@ jobs:
   deploy-backend:
     runs-on: ubuntu-latest
     permissions:
-      id-token: write # Required for OIDC to connect to AWS
+      id-token: write
       contents: read
     outputs:
-      # This makes the API URL available to other jobs
       apiUrl: ${{ steps.get-api-url.outputs.apiUrl }}
     steps:
       - name: Checkout code
@@ -21,7 +20,6 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # This role should grant permissions to deploy SAM and CloudFormation
           role-to-assume: arn:aws:iam::260392369564:role/GitHubAction-AssumeRole-BorrowHubb
           aws-region: us-east-1
 
@@ -34,7 +32,6 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/go/pkg/mod
-          # --- FIX: Point to the correct go.sum location ---
           key: ${{ runner.os }}-go-${{ hashFiles('backend/go.sum') }}
           restore-keys: |
             ${{ runner.os }}-go-
@@ -56,7 +53,7 @@ jobs:
 
   deploy-frontend:
     runs-on: ubuntu-latest
-    needs: deploy-backend # This job runs after the backend is successfully deployed
+    needs: deploy-backend
     permissions:
       id-token: write
       contents: read
@@ -67,7 +64,6 @@ jobs:
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          # This role should grant permissions to sync to the S3 bucket
           role-to-assume: arn:aws:iam::260392369564:role/GitHubAction-AssumeRole-BorrowHubb
           aws-region: us-east-1
 
@@ -76,18 +72,20 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Frontend Dependencies
+      # --- THE FIX IS HERE ---
+      - name: Install Frontend Dependencies with Clean Install
         run: |
           cd frontend
-          npm install
+          npm ci
 
-      - name: Build Frontend
+      - name: Build Frontend Directly
         run: |
           cd frontend
-          # --- IMPROVEMENT: Use the API URL from the backend job ---
-          npm run build
+          # Execute vite directly from its path to avoid permission issues
+          ./node_modules/.bin/vite build
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
+      # --- END OF FIX ---
 
       - name: Deploy Frontend to S3
         run: |
