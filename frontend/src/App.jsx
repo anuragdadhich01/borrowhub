@@ -1,21 +1,23 @@
-import React from 'react';
+import { useState, useEffect } from 'react'
+import './App.css'
 
 function App() {
+  const [data, setData] = useState(null);
+
+  // This is the important part!
+  // It reads the address from the .env.production file.
+  const API_URL = import.meta.env.VITE_API_BASE_URL;
+
+  useEffect(() => {
+    // Now we combine the backend address with the specific request
+    fetch(`${API_URL}/some-data`)
+      .then(res => res.json())
+      .then(data => setData(data));
+  }, []);
+
   return (
-    <main className="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center font-sans p-4">
-      <div className="text-center">
-        <h1 className="text-6xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-purple-400 to-pink-600">
-          BorrowHubb
-        </h1>
-        <p className="mt-4 text-xl text-gray-300">
-          The All-in-One Rental Marketplace.
-        </p>
-        <p className="mt-2 text-lg text-gray-400">
-          Coming Soon. Built by you and me.
-        </p>
-      </div>
-    </main>
-  );
+    // ... your JSX here
+  )
 }
 
-export default App;
+export default App
