@@ -12,8 +12,8 @@ Resources:
   BorrowHubbApiFunction:
     Type: AWS::Serverless::Function
     Properties:
-      # FIXED: CodeUri now points to the built artifact location.
-      CodeUri: .aws-sam/build/BorrowHubbApiFunction
+      # FIXED: CodeUri MUST point to the source code directory, which is '.'
+      CodeUri: .
       Handler: bootstrap
       Runtime: provided.al2
       Architectures:
@@ -24,7 +24,7 @@ Resources:
           Properties:
             Path: /{proxy+}
             Method: ANY
-    # This metadata tells 'sam build' how to build the code at the source path '.'
+    # This metadata correctly tells 'sam build' to use the Makefile found at the CodeUri path
     Metadata:
       BuildMethod: makefile
 
