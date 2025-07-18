@@ -1,0 +1,5 @@
+{
+  "mongoURI": "mongodb+srv://borrowhub_user:borrowhub123@cluster0.9czcmoh.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0",
+  "jwtSecret": "777ff608388026d0e0a20cc3d3f351d89216d89c186ea388e7e8df7a74373bc6",
+  "stripeSecretKey": "sk_test_51RmBESP0LYNC3VT5zS5gYlqkicKW13b6VTeWR7T4lt9pvp5RRMuzPxe3ogD9tqPAkyOIb7AXC6OWC3MZWqR76bNv00PXEPFTV8"
+}
