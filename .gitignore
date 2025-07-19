@@ -34,3 +34,6 @@ yarn-error.log*
 # OS-generated files
 .DS_Store
 Thumbs.db
+
+# Add this line to your .gitignore file
+backend/config/default.json
