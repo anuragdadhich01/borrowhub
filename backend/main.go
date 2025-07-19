@@ -26,10 +26,10 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	}
 
 	// This is the crucial new part!
-	// We are adding a header that allows any origin ('*') to access this API.
+	// We are adding headers that allow any origin ('*') to access this API.
 	headers := map[string]string{
 		"Access-Control-Allow-Origin":  "*",
-		"Access-Control-Allow-Methods": "GET, OPTIONS",
+		"Access-control-Allow-Methods": "GET, OPTIONS",
 		"Access-Control-Allow-Headers": "Content-Type",
 	}
 

@@ -1,38 +1,39 @@
-import React, { useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import ItemContext from '../context/ItemContext';
-import ItemCard from '../components/ItemCard';
-import './HomePage.css'; // For layout styling
 
 const HomePage = () => {
-  const { items, loading, dispatch } = useContext(ItemContext);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const getItems = async () => {
+    const fetchItems = async () => {
       try {
-        const res = await axios.get('/api/items');
-        dispatch({
-          type: 'GET_ITEMS',
-          payload: res.data,
-        });
+        const res = await axios.get('/items');
+        setItems(res.data);
       } catch (err) {
-        console.error(err);
+        console.error("Error fetching items:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
-    getItems();
-  }, [dispatch]);
+    fetchItems();
+  }, []);
+
+  if (loading) {
+    return <h1>Loading items...</h1>;
+  }
 
   return (
     <div>
-      <h1>Available Items</h1>
-      <div className="items-container">
-        {loading ? (
-          <p>Loading items...</p>
-        ) : (
-          items.map(item => <ItemCard key={item._id} item={item} />)
-        )}
-      </div>
+      <h1>Welcome to BorrowHub</h1>
+      <h2>Available Items:</h2>
+      <ul>
+        {items.map(item => (
+          // The key prop has been added here
+          <li key={item.ID}>{item.Name}</li>
+        ))}
+      </ul>
     </div>
   );
 };
