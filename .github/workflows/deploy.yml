@@ -37,7 +37,7 @@ jobs:
         working-directory: backend
 
       - name: Deploy Backend
-        # This is the corrected deploy command with --resolve-s3
+        # This is the corrected deploy command with the correct stack name
         run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
         working-directory: backend
 
@@ -80,6 +80,6 @@ jobs:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
       - name: Deploy Frontend to S3
-        # This command correctly points to your S3 bucket
+        # This command now points to your new S3 bucket
         run: |
-          aws s3 sync ./frontend/dist s3://borrowhub-frontend-260392369564 --delete
+          aws s3 sync ./frontend/dist s3://borrowhubb-live-frontend --delete
