@@ -67,4 +67,4 @@ Outputs:
   BorrowHubApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
     # This value is now dynamic and will always be correct
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+    Value: !Sub "https://eq2ydxqlwj.execute-api.us-east-1.amazonaws.com/Prod/items"
