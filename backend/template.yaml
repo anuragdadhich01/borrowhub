@@ -1,45 +1,75 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  borrowhub
-
-  Sample SAM Template for borrowhub
+  borrow-hub
+  Backend API for the BorrowHub application
 
 Globals:
   Function:
     Timeout: 5
     MemorySize: 128
+  # This new section adds CORS (Cross-Origin Resource Sharing) headers
+  # to all of your API endpoints automatically.
+  Api:
+    Cors:
+      AllowMethods: "'POST, GET, OPTIONS'"
+      AllowHeaders: "'Content-Type, Authorization'"
+      AllowOrigin: "'*'"
 
 Resources:
+  # DynamoDB table for items
+  ItemsTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: items
+      PrimaryKey:
+        Name: id
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  # DynamoDB table for users
+  UsersTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: users
+      PrimaryKey:
+        Name: email
+        Type: String
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+
+  # Main Lambda function
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
     Properties:
-      PackageType: Image
+      CodeUri: .
+      Handler: main
+      Runtime: go1.x
       Architectures:
         - x86_64
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ItemsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Environment:
+        Variables:
+          ITEMS_TABLE_NAME: !Ref ItemsTable
+          USERS_TABLE_NAME: !Ref UsersTable
+      # This single event now catches all requests to any path
       Events:
-        # This event block tells SAM to create an API Gateway,
-        # configure it as a proxy, and connect it to this Lambda.
-        BorrowHubbApiEvent:
+        Api:
           Type: Api
           Properties:
             Path: /{proxy+}
             Method: ANY
-            # This creates a stage named 'Prod'.
-            RestApiId:
-              Ref: ApplicationApi
     Metadata:
-      DockerTag: go1.x-v1
-      DockerContext: ./
-      Dockerfile: Dockerfile
-
-  # Explicitly define the API so we can name the stage
-  ApplicationApi:
-    Type: AWS::Serverless::Api
-    Properties:
-      StageName: Prod
+      BuildMethod: go1.x
 
 Outputs:
-  BorrowHubbApi:
-    Description: "API Gateway endpoint URL for Prod stage for Borrow Hubb function"
-    Value: !Sub "https://${ApplicationApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/items"
+  BorrowHubApi:
+    Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
