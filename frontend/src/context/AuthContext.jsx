@@ -1,7 +1,15 @@
 import React, { createContext, useReducer, useEffect } from 'react';
 import axios from 'axios';
 
+// 1. Create the context
 const AuthContext = createContext();
+
+// 2. Define the initial state and the reducer function
+const initialState = {
+  isAuthenticated: false,
+  user: null,
+  token: localStorage.getItem('token'),
+};
 
 const authReducer = (state, action) => {
   switch (action.type) {
@@ -10,7 +18,7 @@ const authReducer = (state, action) => {
       return {
         ...state,
         isAuthenticated: true,
-        user: action.payload.user,
+        user: action.payload.user, // We'll add user data later
         token: action.payload.token,
       };
     case 'LOGOUT':
@@ -26,22 +34,25 @@ const authReducer = (state, action) => {
   }
 };
 
+// 3. Create the AuthProvider component
 export const AuthProvider = ({ children }) => {
-  const [state, dispatch] = useReducer(authReducer, {
-    isAuthenticated: false,
-    user: null,
-    token: localStorage.getItem('token'),
-  });
+  const [state, dispatch] = useReducer(authReducer, initialState);
 
-  // You can add a function here to load user data based on the token
-  // For now, we'll just set the auth header if a token exists
   useEffect(() => {
+    // This effect will run when the app starts to check for a token
+    // and potentially load user data. For now, it just sets the auth header.
     if (state.token) {
-      axios.defaults.headers.common['x-auth-token'] = state.token;
+      axios.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
+      // Here you would typically also fetch the user's data
+      // For now, we'll assume login is successful if a token exists
+      // In a real app, you'd verify the token with the backend
+      if (!state.isAuthenticated) {
+        dispatch({ type: 'LOGIN_SUCCESS', payload: { token: state.token, user: null } });
+      }
     } else {
-      delete axios.defaults.headers.common['x-auth-token'];
+      delete axios.defaults.headers.common['Authorization'];
     }
-  }, [state.token]);
+  }, [state.token, state.isAuthenticated]);
 
   return (
     <AuthContext.Provider value={{ ...state, dispatch }}>

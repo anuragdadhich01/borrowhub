@@ -1,37 +1,137 @@
-import React, { useState, useContext } from 'react';
+import React, { useState } from 'react';
+import {
+  Container,
+  Box,
+  Avatar,
+  Typography,
+  TextField,
+  Button,
+  Grid,
+  Link as MuiLink,
+  Alert,
+  CircularProgress,
+} from '@mui/material';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import AuthContext from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
 
 const RegisterPage = () => {
-  const [formData, setFormData] = useState({ name: '', email: '', password: '' });
-  const { dispatch } = useContext(AuthContext);
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+  });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  const onChange = e => setFormData({ ...formData, [e.target.name]: e.target.value });
+  // IMPORTANT: This is the base URL of your deployed API
+  const API_ENDPOINT = 'https://0dpjtt6ee7.execute-api.us-east-1.amazonaws.com/prod';
 
-  const onSubmit = async e => {
+  const { name, email, password } = formData;
+
+  const onChange = (e) =>
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const onSubmit = async (e) => {
     e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
     try {
-      const res = await axios.post('/api/users', formData);
-      dispatch({ type: 'LOGIN_SUCCESS', payload: res.data });
-      navigate('/'); // Redirect to home on successful registration
+      const res = await axios.post(`${API_ENDPOINT}/register`, formData);
+      setSuccess(res.data.message || 'Registration successful! Redirecting to login...');
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000);
     } catch (err) {
-      console.error(err.response.data);
-      // You can add logic here to display an error message to the user
+      const errorMessage = err.response?.data?.message || 'An error occurred. Please try again.';
+      setError(errorMessage);
+      console.error(err.response || err);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div>
-      <h2>Register</h2>
-      <form onSubmit={onSubmit}>
-        <input type="text" name="name" placeholder="Name" value={formData.name} onChange={onChange} required />
-        <input type="email" name="email" placeholder="Email" value={formData.email} onChange={onChange} required />
-        <input type="password" name="password" placeholder="Password" value={formData.password} onChange={onChange} required />
-        <button type="submit">Register</button>
-      </form>
-    </div>
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Avatar sx={{ m: 1, bgcolor: 'secondary.main' }}>
+          <LockOutlinedIcon />
+        </Avatar>
+        <Typography component="h1" variant="h5">
+          Sign up
+        </Typography>
+        <Box component="form" noValidate onSubmit={onSubmit} sx={{ mt: 3 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                autoComplete="name"
+                name="name"
+                required
+                fullWidth
+                id="name"
+                label="Full Name"
+                autoFocus
+                value={name}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                id="email"
+                label="Email Address"
+                name="email"
+                autoComplete="email"
+                value={email}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                name="password"
+                label="Password"
+                type="password"
+                id="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={onChange}
+              />
+            </Grid>
+          </Grid>
+          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ mt: 2, width: '100%' }}>{success}</Alert>}
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Sign Up'}
+          </Button>
+          <Grid container justifyContent="flex-end">
+            <Grid item>
+              <MuiLink component={RouterLink} to="/login" variant="body2">
+                Already have an account? Sign in
+              </MuiLink>
+            </Grid>
+          </Grid>
+        </Box>
+      </Box>
+    </Container>
   );
 };
 

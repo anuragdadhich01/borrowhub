@@ -2,41 +2,194 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go/service/dynamodb"
+	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
+	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
+// User struct for storing user data
+type User struct {
+	Name     string `json:"name"`
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+// Item struct to hold our item data
 type Item struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
+// JWT secret key - in a real app, get this from a secure secret manager
+var jwtKey = []byte("your_secret_key")
+
+var db *dynamodb.DynamoDB
+var itemsTableName string
+var usersTableName string
+
+func init() {
+	sess := session.Must(session.NewSessionWithOptions(session.Options{
+		SharedConfigState: session.SharedConfigEnable,
+	}))
+	db = dynamodb.New(sess)
+	itemsTableName = os.Getenv("ITEMS_TABLE_NAME")
+	usersTableName = os.Getenv("USERS_TABLE_NAME")
+}
+
+// Main handler that routes requests based on the path
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	items := []Item{
-		{ID: "1", Name: "Classic Novel"},
-		{ID: "2", Name: "Power Drill"},
-		{ID: "3", Name: "Board Game"},
-		{ID: "4", Name: "Tent"},
+	switch request.Path {
+	case "/items":
+		return getItemsHandler(request)
+	case "/register":
+		return registerHandler(request)
+	case "/login":
+		return loginHandler(request)
+	default:
+		return clientError(404, "Not Found")
+	}
+}
+
+func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	var user User
+	if err := json.Unmarshal([]byte(request.Body), &user); err != nil {
+		return serverError(err)
+	}
+
+	// Basic validation
+	if user.Email == "" || user.Name == "" || user.Password == "" {
+		return clientError(400, "All fields are required")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return serverError(err)
+	}
+	user.Password = string(hashedPassword)
+
+	av, err := dynamodbattribute.MarshalMap(user)
+	if err != nil {
+		return serverError(err)
+	}
+
+	input := &dynamodb.PutItemInput{
+		Item:      av,
+		TableName: aws.String(usersTableName),
+	}
+
+	_, err = db.PutItem(input)
+	if err != nil {
+		return serverError(err)
+	}
+
+	return successfulResponse(`{"message": "User registered successfully"}`)
+}
+
+func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	var creds User
+	if err := json.Unmarshal([]byte(request.Body), &creds); err != nil {
+		return clientError(400, "Invalid request body")
+	}
+
+	result, err := db.GetItem(&dynamodb.GetItemInput{
+		TableName: aws.String(usersTableName),
+		Key: map[string]*dynamodb.AttributeValue{
+			"email": {
+				S: aws.String(creds.Email),
+			},
+		},
+	})
+	if err != nil {
+		return serverError(err)
+	}
+	if result.Item == nil {
+		return clientError(401, "Invalid credentials")
+	}
+
+	var user User
+	if err = dynamodbattribute.UnmarshalMap(result.Item, &user); err != nil {
+		return serverError(err)
+	}
+
+	if err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
+		return clientError(401, "Invalid credentials")
+	}
+
+	expirationTime := time.Now().Add(24 * time.Hour)
+	claims := &jwt.RegisteredClaims{
+		Subject:   user.Email,
+		ExpiresAt: jwt.NewNumericDate(expirationTime),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(jwtKey)
+	if err != nil {
+		return serverError(err)
+	}
+
+	responseBody, _ := json.Marshal(map[string]string{"token": tokenString})
+	return successfulResponse(string(responseBody))
+}
+
+func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	result, err := db.Scan(&dynamodb.ScanInput{
+		TableName: aws.String(itemsTableName),
+	})
+	if err != nil {
+		return serverError(err)
+	}
+
+	var items []Item
+	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &items)
+	if err != nil {
+		return serverError(err)
 	}
 
 	body, err := json.Marshal(items)
 	if err != nil {
-		return events.APIGatewayProxyResponse{Body: "Error marshalling JSON", StatusCode: 500}, nil
+		return serverError(err)
 	}
 
-	// This is the crucial new part!
-	// We are adding headers that allow any origin ('*') to access this API.
-	headers := map[string]string{
-		"Access-Control-Allow-Origin":  "*",
-		"Access-control-Allow-Methods": "GET, OPTIONS",
-		"Access-Control-Allow-Headers": "Content-Type",
-	}
+	return successfulResponse(string(body))
+}
 
+// --- Helper functions for responses ---
+
+// All responses now include CORS headers
+var corsHeaders = map[string]string{
+	"Access-Control-Allow-Origin":  "*",
+	"Access-Control-Allow-Headers": "Content-Type",
+	"Access-Control-Allow-Methods": "OPTIONS,POST,GET",
+}
+
+func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
-		Body:       string(body),
+		Body:       body,
 		StatusCode: 200,
-		Headers:    headers, // <-- We add the headers here
+		Headers:    corsHeaders,
+	}, nil
+}
+
+func serverError(err error) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{
+		Body:       err.Error(),
+		StatusCode: 500,
+		Headers:    corsHeaders,
+	}, nil
+}
+
+func clientError(status int, body string) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{
+		Body:       body,
+		StatusCode: status,
+		Headers:    corsHeaders,
 	}, nil
 }
 

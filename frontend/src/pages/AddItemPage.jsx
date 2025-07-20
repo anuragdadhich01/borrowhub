@@ -1,8 +1,14 @@
-import React, { useState, useContext } from 'react';
-import axios from 'axios';
-import ItemContext from '../context/ItemContext';
-import AuthContext from '../context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
+import {
+  Container,
+  Box,
+  Avatar,
+  Typography,
+  TextField,
+  Button,
+  Grid,
+} from '@mui/material';
+import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 
 const AddItemPage = () => {
   const [formData, setFormData] = useState({
@@ -11,41 +17,96 @@ const AddItemPage = () => {
     dailyRate: '',
     imageUrl: '',
   });
-  const { dispatch: itemDispatch } = useContext(ItemContext);
-  const { user } = useContext(AuthContext);
-  const navigate = useNavigate();
 
   const { name, description, dailyRate, imageUrl } = formData;
 
-  const onChange = e => setFormData({ ...formData, [e.target.name]: e.target.value });
+  const onChange = (e) =>
+    setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const onSubmit = async e => {
+  const onSubmit = (e) => {
     e.preventDefault();
-    if (!user) {
-      alert('You must be logged in to list an item.');
-      return;
-    }
-    try {
-      const res = await axios.post('/api/items', formData);
-      itemDispatch({ type: 'ADD_ITEM', payload: res.data });
-      navigate('/'); // Redirect to home page after successful submission
-    } catch (err) {
-      console.error(err.response.data);
-      // Display error to user
-    }
+    // We will add the logic to submit this to the backend next
+    console.log('Add Item form submitted', formData);
   };
 
   return (
-    <div>
-      <h2>List a New Item</h2>
-      <form onSubmit={onSubmit}>
-        <input type="text" name="name" placeholder="Item Name" value={name} onChange={onChange} required />
-        <textarea name="description" placeholder="Item Description" value={description} onChange={onChange} required />
-        <input type="number" name="dailyRate" placeholder="Daily Rate (₹)" value={dailyRate} onChange={onChange} required />
-        <input type="text" name="imageUrl" placeholder="Image URL" value={imageUrl} onChange={onChange} required />
-        <button type="submit">List My Item</button>
-      </form>
-    </div>
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Avatar sx={{ m: 1, bgcolor: 'primary.main' }}>
+          <AddCircleOutlineIcon />
+        </Avatar>
+        <Typography component="h1" variant="h5">
+          List a New Item
+        </Typography>
+        <Box component="form" noValidate onSubmit={onSubmit} sx={{ mt: 3 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                name="name"
+                required
+                fullWidth
+                id="name"
+                label="Item Name"
+                autoFocus
+                value={name}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                id="description"
+                label="Item Description"
+                name="description"
+                multiline
+                rows={4}
+                value={description}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                name="dailyRate"
+                label="Daily Rate (₹)"
+                type="number"
+                id="dailyRate"
+                value={dailyRate}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                name="imageUrl"
+                label="Image URL"
+                id="imageUrl"
+                value={imageUrl}
+                onChange={onChange}
+              />
+            </Grid>
+          </Grid>
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+          >
+            List My Item
+          </Button>
+        </Box>
+      </Box>
+    </Container>
   );
 };
 

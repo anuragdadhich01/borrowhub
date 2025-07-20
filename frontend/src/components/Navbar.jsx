@@ -1,36 +1,46 @@
-import React, { useContext } from 'react';
-// This import was broken, it's now fixed
-import { Link } from 'react-router-dom'; 
-import AuthContext from '../context/AuthContext.jsx';
+import React from 'react';
+import { AppBar, Toolbar, Typography, Button, Box } from '@mui/material';
+import { Link as RouterLink } from 'react-router-dom';
 
 const Navbar = () => {
-  const { isAuthenticated, dispatch } = useContext(AuthContext);
-
-  const onLogout = () => {
-    dispatch({ type: 'LOGOUT' });
-  };
-
-  const authLinks = (
-    <ul>
-      <li><Link to="/">Home</Link></li>
-      <li><Link to="/add-item">List an Item</Link></li>
-      <li><a onClick={onLogout} href="#!">Logout</a></li>
-    </ul>
-  );
-
-  const guestLinks = (
-    <ul>
-      <li><Link to="/">Home</Link></li>
-      <li><Link to="/register">Register</Link></li>
-      <li><Link to="/login">Login</Link></li>
-    </ul>
-  );
+  // We will add authentication logic back here later
+  const isAuthenticated = false;
 
   return (
-    <nav>
-      <h1><Link to="/">BorrowHub</Link></h1>
-      {isAuthenticated ? authLinks : guestLinks}
-    </nav>
+    <AppBar position="static" sx={{ backgroundColor: '#ffffff', color: '#333' }}>
+      <Toolbar>
+        <Typography 
+          variant="h6" 
+          component={RouterLink} 
+          to="/" 
+          sx={{ flexGrow: 1, textDecoration: 'none', color: 'inherit', fontWeight: 'bold' }}
+        >
+          BorrowHub
+        </Typography>
+        
+        <Box>
+          <Button color="inherit" component={RouterLink} to="/">Home</Button>
+          {isAuthenticated ? (
+            <>
+              <Button color="inherit" component={RouterLink} to="/add-item">List an Item</Button>
+              <Button color="inherit">Logout</Button>
+            </>
+          ) : (
+            <>
+              <Button color="inherit" component={RouterLink} to="/login">Login</Button>
+              <Button 
+                variant="contained" 
+                component={RouterLink} 
+                to="/register" 
+                sx={{ ml: 1 }}
+              >
+                Sign Up
+              </Button>
+            </>
+          )}
+        </Box>
+      </Toolbar>
+    </AppBar>
   );
 };
 
