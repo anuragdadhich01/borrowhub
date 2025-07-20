@@ -8,8 +8,6 @@ Globals:
   Function:
     Timeout: 5
     MemorySize: 128
-  # This new section adds CORS (Cross-Origin Resource Sharing) headers
-  # to all of your API endpoints automatically.
   Api:
     Cors:
       AllowMethods: "'POST, GET, OPTIONS'"
@@ -17,7 +15,6 @@ Globals:
       AllowOrigin: "'*'"
 
 Resources:
-  # DynamoDB table for items
   ItemsTable:
     Type: AWS::Serverless::SimpleTable
     Properties:
@@ -29,7 +26,6 @@ Resources:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
 
-  # DynamoDB table for users
   UsersTable:
     Type: AWS::Serverless::SimpleTable
     Properties:
@@ -41,7 +37,6 @@ Resources:
         ReadCapacityUnits: 1
         WriteCapacityUnits: 1
 
-  # Main Lambda function
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -59,7 +54,6 @@ Resources:
         Variables:
           ITEMS_TABLE_NAME: !Ref ItemsTable
           USERS_TABLE_NAME: !Ref UsersTable
-      # This single event now catches all requests to any path
       Events:
         Api:
           Type: Api
@@ -72,4 +66,5 @@ Resources:
 Outputs:
   BorrowHubApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
-    Value: !Sub "https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/"
+    # This value is now dynamic and will always be correct
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"

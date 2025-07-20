@@ -23,36 +23,28 @@ jobs:
           role-to-assume: arn:aws:iam::260392369564:role/GitHubAction-AssumeRole-BorrowHubb
           aws-region: us-east-1
 
-      - name: Set up Go and Cache Dependencies
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.21'
           cache-dependency-path: backend/go.sum
 
-      - name: Install SAM CLI
-        run: pip install aws-sam-cli
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
 
-      - name: Build and Deploy Backend
-        run: |
-          # Define the ECR repository URI.
-          ECR_REPO_URI="260392369564.dkr.ecr.us-east-1.amazonaws.com/borrowhub"
+      - name: Build Backend
+        run: sam build
+        working-directory: backend
 
-          # Build the SAM application from the project root.
-          sam build --template-file backend/template.yaml
-
-          # Deploy the SAM application from the project root.
-          sam deploy \
-            --template-file .aws-sam/build/template.yaml \
-            --no-confirm-changeset \
-            --no-fail-on-empty-changeset \
-            --stack-name BorrowHubb-API-Stack \
-            --image-repository $ECR_REPO_URI \
-            --capabilities CAPABILITY_IAM
+      - name: Deploy Backend
+        # This is the corrected deploy command
+        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubb-API-Stack --capabilities CAPABILITY_IAM --resolve-s3
+        working-directory: backend
 
       - name: Get API Gateway URL
         id: get-api-url
         run: |
-          API_URL=$(aws cloudformation describe-stacks --stack-name BorrowHubb-API-Stack --query "Stacks[0].Outputs[?OutputKey=='BorrowHubbApi'].OutputValue" --output text)
+          API_URL=$(aws cloudformation describe-stacks --stack-name BorrowHubb-API-Stack --query "Stacks[0].Outputs[?OutputKey=='BorrowHubApi'].OutputValue" --output text)
           echo "apiUrl=$API_URL" >> $GITHUB_OUTPUT
 
   deploy-frontend:
@@ -76,18 +68,17 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Frontend Dependencies with Yarn
-        run: |
-          cd frontend
-          yarn install
+      - name: Install Frontend Dependencies
+        run: npm install
+        working-directory: frontend
 
-      - name: Build Frontend with Yarn
-        run: |
-          cd frontend
-          yarn build
+      - name: Build Frontend
+        run: npm run build
+        working-directory: frontend
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
       - name: Deploy Frontend to S3
         run: |
           aws s3 sync ./frontend/dist s3://borrowhub-frontend-260392369564 --delete
+
