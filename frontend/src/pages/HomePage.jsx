@@ -18,18 +18,15 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // IMPORTANT: Replace this with the API URL from your `sam deploy` output
-  const API_ENDPOINT = 'https://0dpjtt6ee7.execute-api.us-east-1.amazonaws.com/prod/items';
+  // This is your live API endpoint from AWS
+  const API_ENDPOINT = 'https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/items';
 
   useEffect(() => {
     const fetchItems = async () => {
       try {
         setLoading(true);
         const res = await axios.get(API_ENDPOINT);
-        
-        // The data from the Go backend is a JSON string in the body, so we parse it.
-        const parsedItems = JSON.parse(res.data.body);
-        setItems(parsedItems);
+        setItems(res.data);
         setError(null);
       } catch (err) {
         console.error("Error fetching items:", err);
@@ -71,7 +68,6 @@ const HomePage = () => {
                 <CardMedia
                   component="img"
                   height="160"
-                  // Using a placeholder image based on the item name
                   image={`https://placehold.co/600x400/556cd6/white?text=${item.Name.replace(/\s/g, '+')}`}
                   alt={item.Name}
                 />
@@ -80,7 +76,6 @@ const HomePage = () => {
                     {item.Name}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {/* Placeholder description */}
                     This is a great item available for rent. Click to see more details.
                   </Typography>
                 </CardContent>
