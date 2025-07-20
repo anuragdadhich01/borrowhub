@@ -33,18 +33,19 @@ jobs:
         uses: aws-actions/setup-sam@v2
 
       - name: Build Backend
-        run: sam build
+        run: sam build --use-container
         working-directory: backend
 
       - name: Deploy Backend
-        # This is the corrected deploy command with --resolve-s3
-        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubb-API-Stack --capabilities CAPABILITY_IAM --resolve-s3
+        # This now uses the correct stack name: BorrowHubStack
+        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
         working-directory: backend
 
       - name: Get API Gateway URL
         id: get-api-url
         run: |
-          API_URL=$(aws cloudformation describe-stacks --stack-name BorrowHubb-API-Stack --query "Stacks[0].Outputs[?OutputKey=='BorrowHubApi'].OutputValue" --output text)
+          # This now fetches the output from the correct stack name
+          API_URL=$(aws cloudformation describe-stacks --stack-name BorrowHubStack --query "Stacks[0].Outputs[?OutputKey=='BorrowHubApi'].OutputValue" --output text)
           echo "apiUrl=$API_URL" >> $GITHUB_OUTPUT
 
   deploy-frontend:
@@ -68,16 +69,17 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Frontend Dependencies with Yarn
-        run: yarn install
+      - name: Install Frontend Dependencies
+        run: npm install
         working-directory: frontend
 
-      - name: Build Frontend with Yarn
-        run: yarn build
+      - name: Build Frontend
+        run: npm run build
         working-directory: frontend
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
       - name: Deploy Frontend to S3
+        # This command correctly points to your S3 bucket
         run: |
           aws s3 sync ./frontend/dist s3://borrowhub-frontend-260392369564 --delete
