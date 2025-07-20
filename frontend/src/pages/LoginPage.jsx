@@ -27,7 +27,7 @@ const LoginPage = () => {
   const { dispatch } = useContext(AuthContext); // Get the dispatch function from context
 
   // IMPORTANT: This is the base URL of your deployed API
-  const API_ENDPOINT = 'https://0dpjtt6ee7.execute-api.us-east-1.amazonaws.com/prod';
+  const API_ENDPOINT = 'https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/';
 
   const { email, password } = formData;
 

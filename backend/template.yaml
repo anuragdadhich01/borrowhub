@@ -72,4 +72,4 @@ Resources:
 Outputs:
   BorrowHubApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+    Value: !Sub "https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/"
