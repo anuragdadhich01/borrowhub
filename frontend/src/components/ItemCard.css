@@ -26,3 +26,7 @@
   color: #007bff;
   font-weight: bold;
 }
+.card-link {
+  text-decoration: none;
+  color: inherit;
+}
