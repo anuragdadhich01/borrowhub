@@ -1,0 +1,82 @@
+name: Deploy Full Stack Application (New)
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      apiUrl: ${{ steps.get-api-url.outputs.apiUrl }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::722121531871:role/GitHubAction-AssumeRole-BorrowHubb
+          aws-region: us-east-1
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache-dependency-path: backend/go.sum
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build Backend
+        run: sam build --use-container
+        working-directory: backend
+
+      - name: Deploy Backend
+        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
+        working-directory: backend
+
+      - name: Get API Gateway URL
+        id: get-api-url
+        run: |
+          API_URL=$(aws cloudformation describe-stacks --stack-name BorrowHubStack --query "Stacks[0].Outputs[?OutputKey=='BorrowHubApi'].OutputValue" --output text)
+          echo "apiUrl=$API_URL" >> $GITHUB_OUTPUT
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::722121531871:role/GitHubAction-AssumeRole-BorrowHubb
+          aws-region: us-east-1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Frontend Dependencies
+        run: npm install
+        working-directory: frontend
+
+      - name: Build Frontend
+        run: npm run build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
+
+      - name: Deploy Frontend to S3
+        run: |
+          aws s3 sync ./frontend/dist s3://borrowhub-frontend-722121531871 --delete
