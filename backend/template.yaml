@@ -42,7 +42,7 @@ Resources:
     Properties:
       CodeUri: .
       Handler: main
-      Runtime: go1.x
+      Runtime: go1.22
       Architectures:
         - x86_64
       Policies:
@@ -61,7 +61,7 @@ Resources:
             Path: /{proxy+}
             Method: ANY
     Metadata:
-      BuildMethod: go1.x
+      BuildMethod: go1.22
 
 Outputs:
   BorrowHubApi:
