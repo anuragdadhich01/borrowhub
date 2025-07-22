@@ -42,7 +42,7 @@ Resources:
     Properties:
       CodeUri: .
       Handler: main
-      Runtime: go1.22
+      Runtime: go1.21
       Architectures:
         - x86_64
       Policies:
@@ -61,10 +61,10 @@ Resources:
             Path: /{proxy+}
             Method: ANY
     Metadata:
-      BuildMethod: go1.22
+      BuildMethod: go1.21
 
 Outputs:
   BorrowHubApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
     # This value is now dynamic and will always be correct
-    Value: !Sub "https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/"
+    Value: !Sub "https://${ApiGatewayRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
