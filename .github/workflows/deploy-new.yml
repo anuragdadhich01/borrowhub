@@ -67,19 +67,15 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Frontend Dependencies
-        run: npm install
+      - name: Install Frontend Dependencies with Yarn
+        run: yarn install
         working-directory: frontend
-      
-      - name: Add Execute Permissions
-        run: chmod +x frontend/node_modules/.bin/vite
 
-      - name: Build Frontend
-        run: npm run build
+      - name: Build Frontend with Yarn
+        run: yarn build
         working-directory: frontend
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
       - name: Deploy Frontend to S3
-        run: |
-          aws s3 sync ./frontend/dist s3://borrowhub-frontend-722121531871 --delete
+        run: aws s3 sync frontend/dist s3://borrowhub-frontend-722121531871 --delete
