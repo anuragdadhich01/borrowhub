@@ -26,8 +26,8 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // IMPORTANT: This is the base URL of your deployed API
-  const API_ENDPOINT = 'https://0dpjtt6ee7.execute-api.us-east-1.amazonaws.com/prod';
+  // This now correctly uses the environment variable from your GitHub Action
+  const API_ENDPOINT = import.meta.env.VITE_API_BASE_URL;
 
   const { name, email, password } = formData;
 
@@ -41,12 +41,16 @@ const RegisterPage = () => {
     setLoading(true);
     try {
       const res = await axios.post(`${API_ENDPOINT}/register`, formData);
-      setSuccess(res.data.message || 'Registration successful! Redirecting to login...');
+      
+      // The Go backend returns a JSON string in the body, so we parse it.
+      const data = JSON.parse(res.data.body);
+      
+      setSuccess(data.message || 'Registration successful! Redirecting to login...');
       setTimeout(() => {
         navigate('/login');
       }, 2000);
     } catch (err) {
-      const errorMessage = err.response?.data?.message || 'An error occurred. Please try again.';
+      const errorMessage = err.response?.data || 'An error occurred. Please try again.';
       setError(errorMessage);
       console.error(err.response || err);
     } finally {

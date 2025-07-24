@@ -18,8 +18,8 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // This is your live API endpoint from AWS
-  const API_ENDPOINT = 'https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/items';
+  // This now correctly uses the environment variable from your GitHub Action
+  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/items`;
 
   useEffect(() => {
     const fetchItems = async () => {
@@ -27,10 +27,8 @@ const HomePage = () => {
         setLoading(true);
         const res = await axios.get(API_ENDPOINT);
         
-        // This is the corrected line:
-        // We parse the JSON string from the response body
+        // The Go backend returns a JSON string in the body, so we parse it.
         const parsedItems = JSON.parse(res.data.body);
-
         setItems(parsedItems);
         setError(null);
       } catch (err) {
@@ -42,7 +40,7 @@ const HomePage = () => {
     };
 
     fetchItems();
-  }, []);
+  }, [API_ENDPOINT]);
 
   if (loading) {
     return (
