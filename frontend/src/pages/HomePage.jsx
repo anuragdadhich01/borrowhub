@@ -52,7 +52,7 @@ const HomePage = () => {
 
   if (error) {
     return (
-      <Typography color="error" align="center">
+      <Typography color="error" align="center" sx={{ mt: 4 }}>
         {error}
       </Typography>
     );

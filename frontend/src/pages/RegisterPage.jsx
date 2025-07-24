@@ -27,7 +27,7 @@ const RegisterPage = () => {
   const navigate = useNavigate();
 
   // This now correctly uses the environment variable from your GitHub Action
-  const API_ENDPOINT = import.meta.env.VITE_API_BASE_URL;
+  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/';
 
   const { name, email, password } = formData;
 

@@ -14,7 +14,7 @@ import {
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import AuthContext from '../context/AuthContext'; // Import the AuthContext
+import AuthContext from '../context/AuthContext';
 
 const LoginPage = () => {
   const [formData, setFormData] = useState({
@@ -24,10 +24,10 @@ const LoginPage = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { dispatch } = useContext(AuthContext); // Get the dispatch function from context
+  const { dispatch } = useContext(AuthContext);
 
-  // IMPORTANT: This is the base URL of your deployed API
-  const API_ENDPOINT = 'https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/';
+  // This now correctly uses the environment variable from your GitHub Action
+  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/';
 
   const { email, password } = formData;
 
@@ -41,14 +41,13 @@ const LoginPage = () => {
     try {
       const res = await axios.post(`${API_ENDPOINT}/login`, formData);
       
-      // The token is inside a JSON string in the body, so we parse it
+      // The Go backend returns a JSON string in the body, so we parse it.
       const data = JSON.parse(res.data.body);
       const token = data.token;
 
-      // Dispatch the login success action to update the global state
       dispatch({ type: 'LOGIN_SUCCESS', payload: { token } });
       
-      navigate('/'); // Redirect to homepage on successful login
+      navigate('/');
     } catch (err) {
       const errorMessage = err.response?.data || 'Invalid credentials. Please try again.';
       setError(errorMessage);
