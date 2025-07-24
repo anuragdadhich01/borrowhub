@@ -18,16 +18,19 @@ const HomePage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // This now reads the API URL from the environment variable set by the GitHub Action
-  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/items`;
+  // This is your live API endpoint from AWS
+  const API_ENDPOINT = 'https://12ej68xaye.execute-api.us-east-1.amazonaws.com/prod/items';
 
   useEffect(() => {
     const fetchItems = async () => {
       try {
         setLoading(true);
         const res = await axios.get(API_ENDPOINT);
-        // The Go backend returns a JSON string in the body, so we need to parse it
+        
+        // This is the corrected line:
+        // We parse the JSON string from the response body
         const parsedItems = JSON.parse(res.data.body);
+
         setItems(parsedItems);
         setError(null);
       } catch (err) {
@@ -39,7 +42,7 @@ const HomePage = () => {
     };
 
     fetchItems();
-  }, [API_ENDPOINT]);
+  }, []);
 
   if (loading) {
     return (
@@ -63,7 +66,7 @@ const HomePage = () => {
         Available Items
       </Typography>
       <Grid container spacing={4}>
-        {items.map((item) => (
+        {items && items.map((item) => (
           <Grid item key={item.id} xs={12} sm={6} md={4}>
             <Card sx={{ height: '100%', display: 'flex', flexDirection: 'column', borderRadius: 2, boxShadow: 3 }}>
               <CardActionArea component={RouterLink} to={`/item/${item.id}`}>
