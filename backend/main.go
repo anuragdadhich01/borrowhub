@@ -67,9 +67,6 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	return clientError(404, "Not Found")
 }
 
-// All other functions (getItemsHandler, registerHandler, etc.) are below
-// and should be included in your file.
-
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,

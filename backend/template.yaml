@@ -5,13 +5,10 @@ Description: >
   Backend API for the BorrowHub application
 
 Globals:
-  Function:
-    Timeout: 10
-    MemorySize: 128
   Api:
     Cors:
       AllowMethods: "'*'"
-      AllowHeaders: "'Content-Type,Authorization'"
+      AllowHeaders: "'*'"
       AllowOrigin: "'*'"
 
 Resources:
@@ -21,8 +18,7 @@ Resources:
       CodeUri: .
       Handler: bootstrap
       Runtime: provided.al2
-      Architectures:
-        - x86_64
+      Timeout: 10
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ItemsTable
@@ -33,11 +29,11 @@ Resources:
           ITEMS_TABLE_NAME: !Ref ItemsTable
           USERS_TABLE_NAME: !Ref UsersTable
       Events:
-        ApiEvent:
+        Api:
           Type: Api
           Properties:
             Path: /{proxy+}
-            Method: ANY
+            Method: any
 
   ItemsTable:
     Type: AWS::Serverless::SimpleTable
