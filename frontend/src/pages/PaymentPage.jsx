@@ -29,7 +29,7 @@ const RegisterPage = () => {
   const navigate = useNavigate();
 
   // Use the environment variable for the API endpoint
-  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/register`;
+  const API_ENDPOINT = `https://4kqty37vn5.execute-api.us-east-1.amazonaws.com/prod/register`;
 
   const { name, email, password } = formData;
 
