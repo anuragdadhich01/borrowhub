@@ -45,16 +45,23 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// The API Gateway's CORS configuration handles OPTIONS requests automatically.
-	path := strings.Trim(request.PathParameters["proxy"], "/")
+	// Handle CORS preflight requests
+	if request.HTTPMethod == "OPTIONS" {
+		return successfulResponse("")
+	}
+
+	// Simple router based on the path
+	path := strings.Trim(request.Path, "/")
+	pathParts := strings.Split(path, "/")
+	resource := pathParts[len(pathParts)-1]
 
 	switch request.HTTPMethod {
 	case "GET":
-		if path == "items" {
+		if resource == "items" {
 			return getItemsHandler(request)
 		}
 	case "POST":
-		switch path {
+		switch resource {
 		case "register":
 			return registerHandler(request)
 		case "login":
@@ -73,6 +80,7 @@ func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 		Headers: map[string]string{
 			"Access-Control-Allow-Origin":  "*",
 			"Access-Control-Allow-Headers": "Content-Type,Authorization",
+			"Access-Control-Allow-Methods": "OPTIONS,GET,POST,PUT,DELETE",
 		},
 		Body: body,
 	}, nil
