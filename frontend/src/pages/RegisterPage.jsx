@@ -1,3 +1,5 @@
+// frontend/src/pages/RegisterPage.jsx
+
 import React, { useState } from 'react';
 import {
   Container,
@@ -26,9 +28,7 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
- // frontend/src/pages/RegisterPage.jsx
-
-  // REPLACE THIS LINE
+  // FIX: Using the correct, single path for the register endpoint
   const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/register';
 
   const { name, email, password } = formData;
@@ -42,9 +42,8 @@ const RegisterPage = () => {
     setSuccess('');
     setLoading(true);
     try {
-      const res = await axios.post(`${API_ENDPOINT}/register`, formData);
+      const res = await axios.post(API_ENDPOINT, formData);
       
-      // The Go backend returns a JSON string in the body, so we parse it.
       const data = JSON.parse(res.data.body);
       
       setSuccess(data.message || 'Registration successful! Redirecting to login...');
@@ -52,7 +51,7 @@ const RegisterPage = () => {
         navigate('/login');
       }, 2000);
     } catch (err) {
-      const errorMessage = err.response?.data || 'An error occurred. Please try again.';
+      const errorMessage = err.response?.data?.body || 'An error occurred. Please try again.';
       setError(errorMessage);
       console.error(err.response || err);
     } finally {
