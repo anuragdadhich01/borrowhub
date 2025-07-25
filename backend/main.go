@@ -45,9 +45,8 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// The API Gateway's CORS configuration will handle OPTIONS requests automatically.
-	// This router will handle the actual API calls.
-	path := strings.Trim(request.Path, "/")
+	// The API Gateway's CORS configuration handles OPTIONS requests automatically.
+	path := strings.Trim(request.PathParameters["proxy"], "/")
 
 	switch request.HTTPMethod {
 	case "GET":
@@ -67,26 +66,24 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	return clientError(404, "Not Found")
 }
 
+// --- Response Helpers ---
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
 		Headers: map[string]string{
 			"Access-Control-Allow-Origin":  "*",
 			"Access-Control-Allow-Headers": "Content-Type,Authorization",
-			"Access-Control-Allow-Methods": "OPTIONS,GET,POST,PUT,DELETE",
 		},
 		Body: body,
 	}, nil
 }
-
 func clientError(status int, body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
 		StatusCode: status,
 		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
-		Body:       body,
+		Body:       fmt.Sprintf(`{"message":"%s"}`, body),
 	}, nil
 }
-
 func serverError(err error) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
 		StatusCode: 500,
@@ -96,7 +93,6 @@ func serverError(err error) (events.APIGatewayProxyResponse, error) {
 }
 
 // --- Handler Functions ---
-
 func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	result, err := db.Scan(&dynamodb.ScanInput{TableName: aws.String(itemsTableName)})
 	if err != nil {
@@ -113,7 +109,6 @@ func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	}
 	return successfulResponse(string(body))
 }
-
 func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var user User
 	if err := json.Unmarshal([]byte(request.Body), &user); err != nil {
@@ -134,7 +129,6 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	}
 	return successfulResponse(`{"message": "User registered successfully"}`)
 }
-
 func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var creds User
 	if err := json.Unmarshal([]byte(request.Body), &creds); err != nil {
@@ -167,7 +161,6 @@ func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxy
 	responseBody, _ := json.Marshal(map[string]string{"token": tokenString})
 	return successfulResponse(string(responseBody))
 }
-
 func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var item Item
 	if err := json.Unmarshal([]byte(request.Body), &item); err != nil {
