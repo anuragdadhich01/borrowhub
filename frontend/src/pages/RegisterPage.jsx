@@ -26,8 +26,10 @@ const RegisterPage = () => {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
-  // This now correctly uses the environment variable from your GitHub Action
-  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/';
+ // frontend/src/pages/RegisterPage.jsx
+
+  // REPLACE THIS LINE
+  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/register';
 
   const { name, email, password } = formData;
 

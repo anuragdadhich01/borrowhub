@@ -21,7 +21,10 @@ const HomePage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/items`;
+   // frontend/src/pages/HomePage.jsx
+
+  // REPLACE THIS LINE
+  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/items';
 
     useEffect(() => {
         const fetchItems = async () => {

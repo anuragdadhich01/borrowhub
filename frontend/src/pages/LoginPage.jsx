@@ -28,8 +28,10 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { dispatch } = useContext(AuthContext);
 
-  // Use the environment variable for the API endpoint
-  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/login`;
+ // frontend/src/pages/LoginPage.jsx
+
+  // REPLACE THIS LINE
+  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/login';
 
   const { email, password } = formData;
 

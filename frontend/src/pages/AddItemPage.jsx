@@ -26,8 +26,10 @@ const AddItemPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/items`;
+  // frontend/src/pages/AddItemPage.jsx
 
+  // REPLACE THIS LINE
+  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/items';
   const { name, description, dailyRate, imageUrl } = formData;
 
   const onChange = (e) =>
