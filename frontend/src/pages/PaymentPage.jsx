@@ -1,49 +1,143 @@
-import React, { useState, useEffect } from 'react';
-import { loadStripe } from '@stripe/stripe-js';
-import { Elements } from '@stripe/react-stripe-js';
-import { useLocation } from 'react-router-dom';
+// frontend/src/pages/RegisterPage.jsx
+
+import React, { useState } from 'react';
+import {
+  Container,
+  Box,
+  Avatar,
+  Typography,
+  TextField,
+  Button,
+  Grid,
+  Link as MuiLink,
+  Alert,
+  CircularProgress,
+} from '@mui/material';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import axios from 'axios';
-import CheckoutForm from '../components/CheckoutForm';
 
-// Make sure to call `loadStripe` outside of a component’s render to avoid
-// recreating the `Stripe` object on every render.
-const stripePromise = loadStripe('pk_test_51RmBESP0LYNC3VT5q4LvNs7kZwfaiPK2BTjdsbKuhMrS9cGE5Y2cVhwbOo3ltGeMNynEqwwnlWDbUWCOG5wCXCUN00Ufljs22O');
+const RegisterPage = () => {
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+  });
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+  const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
-const PaymentPage = () => {
-  const [clientSecret, setClientSecret] = useState('');
-  const location = useLocation();
+  // Use the environment variable for the API endpoint
+  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/register`;
 
-  useEffect(() => {
-    // Get the bookingId from the state passed via navigate
-    const { bookingId } = location.state || {};
+  const { name, email, password } = formData;
 
-    if (bookingId) {
-      const getClientSecret = async () => {
-        try {
-          const res = await axios.post('/api/bookings/create-payment-intent', { bookingId });
-          setClientSecret(res.data.clientSecret);
-        } catch (err) {
-          console.error('Error fetching client secret', err);
-        }
-      };
-      getClientSecret();
+  const onChange = (e) =>
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+
+  const onSubmit = async (e) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+    setLoading(true);
+    try {
+      const res = await axios.post(API_ENDPOINT, formData);
+
+      const data = JSON.parse(res.data.body);
+
+      setSuccess(data.message || 'Registration successful! Redirecting to login...');
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000);
+    } catch (err) {
+      const errorMessage = err.response?.data?.body || 'An error occurred. Please try again.';
+      setError(errorMessage);
+      console.error(err.response || err);
+    } finally {
+      setLoading(false);
     }
-  }, [location.state]);
-
-  const options = {
-    clientSecret,
   };
 
   return (
-    <div>
-      <h2>Confirm Your Booking</h2>
-      {clientSecret && (
-        <Elements options={options} stripe={stripePromise}>
-          <CheckoutForm />
-        </Elements>
-      )}
-    </div>
+    <Container component="main" maxWidth="xs">
+      <Box
+        sx={{
+          marginTop: 8,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+        }}
+      >
+        <Avatar sx={{ m: 1, bgcolor: 'secondary.main' }}>
+          <LockOutlinedIcon />
+        </Avatar>
+        <Typography component="h1" variant="h5">
+          Sign up
+        </Typography>
+        <Box component="form" noValidate onSubmit={onSubmit} sx={{ mt: 3 }}>
+          <Grid container spacing={2}>
+            <Grid item xs={12}>
+              <TextField
+                autoComplete="name"
+                name="name"
+                required
+                fullWidth
+                id="name"
+                label="Full Name"
+                autoFocus
+                value={name}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                id="email"
+                label="Email Address"
+                name="email"
+                autoComplete="email"
+                value={email}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                required
+                fullWidth
+                name="password"
+                label="Password"
+                type="password"
+                id="password"
+                autoComplete="new-password"
+                value={password}
+                onChange={onChange}
+              />
+            </Grid>
+          </Grid>
+          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
+          {success && <Alert severity="success" sx={{ mt: 2, width: '100%' }}>{success}</Alert>}
+          <Button
+            type="submit"
+            fullWidth
+            variant="contained"
+            sx={{ mt: 3, mb: 2 }}
+            disabled={loading}
+          >
+            {loading ? <CircularProgress size={24} /> : 'Sign Up'}
+          </Button>
+          <Grid container justifyContent="flex-end">
+            <Grid item>
+              <MuiLink component={RouterLink} to="/login" variant="body2">
+                Already have an account? Sign in
+              </MuiLink>
+            </Grid>
+          </Grid>
+        </Box>
+      </Box>
+    </Container>
   );
 };
 
-export default PaymentPage;
+export default RegisterPage;

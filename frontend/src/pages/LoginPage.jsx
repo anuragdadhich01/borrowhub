@@ -1,3 +1,5 @@
+// frontend/src/pages/LoginPage.jsx
+
 import React, { useState, useContext } from 'react';
 import {
   Container,
@@ -26,8 +28,8 @@ const LoginPage = () => {
   const navigate = useNavigate();
   const { dispatch } = useContext(AuthContext);
 
-  // This now correctly uses the environment variable from your GitHub Action
-  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/';
+  // Use the environment variable for the API endpoint
+  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/login`;
 
   const { email, password } = formData;
 
@@ -39,17 +41,16 @@ const LoginPage = () => {
     setError('');
     setLoading(true);
     try {
-      const res = await axios.post(`${API_ENDPOINT}/login`, formData);
-      
-      // The Go backend returns a JSON string in the body, so we parse it.
+      const res = await axios.post(API_ENDPOINT, formData);
+
       const data = JSON.parse(res.data.body);
       const token = data.token;
 
       dispatch({ type: 'LOGIN_SUCCESS', payload: { token } });
-      
+
       navigate('/');
     } catch (err) {
-      const errorMessage = err.response?.data || 'Invalid credentials. Please try again.';
+      const errorMessage = err.response?.data?.body || 'Invalid credentials. Please try again.';
       setError(errorMessage);
       console.error(err.response || err);
     } finally {
