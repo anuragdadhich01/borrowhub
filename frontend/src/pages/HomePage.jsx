@@ -21,20 +21,16 @@ const HomePage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-   // frontend/src/pages/HomePage.jsx
-
-  // REPLACE THIS LINE
-  const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/items';
+    // Hardcoded correct URL
+    const API_ENDPOINT = 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod/items';
 
     useEffect(() => {
         const fetchItems = async () => {
             try {
                 setLoading(true);
                 const res = await axios.get(API_ENDPOINT);
-
-                // The Go backend's response is in the 'body' property and is a JSON string.
                 const parsedItems = JSON.parse(res.data.body);
-                setItems(parsedItems || []); // Ensure items is an array
+                setItems(parsedItems || []);
                 setError(null);
             } catch (err) {
                 console.error("Error fetching items:", err);
