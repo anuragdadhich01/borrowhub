@@ -48,6 +48,10 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	if request.HTTPMethod == "OPTIONS" {
+		return handleOptions(request)
+	}
+
 	switch request.HTTPMethod {
 	case "GET":
 		if request.Path == "/items" {
@@ -197,11 +201,17 @@ func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(string(body))
 }
 
-// FIX: Added "Authorization" to the list of allowed headers
 var corsHeaders = map[string]string{
 	"Access-Control-Allow-Origin":  "*",
 	"Access-Control-Allow-Headers": "Content-Type,Authorization",
 	"Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE",
+}
+
+func handleOptions(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{
+		StatusCode: 200,
+		Headers:    corsHeaders,
+	}, nil
 }
 
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {

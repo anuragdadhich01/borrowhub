@@ -10,8 +10,8 @@ Globals:
     MemorySize: 128
   Api:
     Cors:
-      AllowMethods: "'POST, GET, OPTIONS'"
-      AllowHeaders: "'Content-Type, Authorization'"
+      AllowMethods: "'POST, GET, OPTIONS, PUT, DELETE'"
+      AllowHeaders: "'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token'"
       AllowOrigin: "'*'"
 
 Resources:
