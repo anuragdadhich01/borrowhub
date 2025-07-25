@@ -75,7 +75,7 @@ jobs:
         run: yarn build
         working-directory: frontend
         env:
-          VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
+          VITE_API_BASE_URL: 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod'
 
       - name: Deploy Frontend to S3
         run: aws s3 sync frontend/dist s3://borrowhub-frontend-722121531871 --delete
