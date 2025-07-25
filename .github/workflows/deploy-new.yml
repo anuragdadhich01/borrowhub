@@ -12,7 +12,7 @@ jobs:
       id-token: write
       contents: read
     outputs:
-      apiUrl: ${{ steps.get-api-url.outputs.apiUrl }}
+      apiUrl: 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -39,12 +39,6 @@ jobs:
       - name: Deploy Backend
         run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
         working-directory: backend
-
-      - name: Get API Gateway URL
-        id: get-api-url
-        run: |
-          API_URL=$(aws cloudformation describe-stacks --stack-name BorrowHubStack --query "Stacks[0].Outputs[?OutputKey=='BorrowHubApi'].OutputValue" --output text)
-          echo "apiUrl=$API_URL" >> $GITHUB_OUTPUT
 
   deploy-frontend:
     runs-on: ubuntu-latest
@@ -75,7 +69,7 @@ jobs:
         run: yarn build
         working-directory: frontend
         env:
-          VITE_API_BASE_URL: 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod'
+          VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
 
       - name: Deploy Frontend to S3
         run: aws s3 sync frontend/dist s3://borrowhub-frontend-722121531871 --delete
