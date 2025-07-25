@@ -6,12 +6,12 @@ Description: >
 
 Globals:
   Function:
-    Timeout: 5
+    Timeout: 10
     MemorySize: 128
   Api:
     Cors:
-      AllowMethods: "'POST, GET, OPTIONS, PUT, DELETE'"
-      AllowHeaders: "'Content-Type, Authorization, X-Amz-Date, X-Api-Key, X-Amz-Security-Token'"
+      AllowMethods: "'*'"
+      AllowHeaders: "'*'"
       AllowOrigin: "'*'"
 
 Resources:
@@ -22,9 +22,6 @@ Resources:
       PrimaryKey:
         Name: id
         Type: String
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
 
   UsersTable:
     Type: AWS::Serverless::SimpleTable
@@ -33,9 +30,6 @@ Resources:
       PrimaryKey:
         Name: email
         Type: String
-      ProvisionedThroughput:
-        ReadCapacityUnits: 1
-        WriteCapacityUnits: 1
 
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
@@ -55,13 +49,14 @@ Resources:
           ITEMS_TABLE_NAME: !Ref ItemsTable
           USERS_TABLE_NAME: !Ref UsersTable
       Events:
-        Api:
+        ApiEvent:
           Type: Api
           Properties:
             Path: /{proxy+}
             Method: ANY
-    Metadata:
-      BuildMethod: makefile
+            # This is the crucial line to fix the 403 error
+            Auth:
+              DefaultAuthorizer: NONE
 
 Outputs:
   BorrowHubApi:
