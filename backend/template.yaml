@@ -4,17 +4,34 @@ Description: >
   borrow-hub
   Backend API for the BorrowHub application
 
-Globals:
-  Function:
-    Timeout: 10
-    MemorySize: 128
-  Api:
-    Cors:
-      AllowMethods: "'*'"
-      AllowHeaders: "'*'"
-      AllowOrigin: "'*'"
-
 Resources:
+  BorrowHubbFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: bootstrap
+      Runtime: provided.al2
+      Timeout: 10
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ItemsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref UsersTable
+      Environment:
+        Variables:
+          ITEMS_TABLE_NAME: !Ref ItemsTable
+          USERS_TABLE_NAME: !Ref UsersTable
+      Events:
+        Api:
+          Type: Api
+          Properties:
+            Path: /{proxy+}
+            Method: any
+            Cors:
+              AllowMethods: "'*'"
+              AllowHeaders: "'*'"
+              AllowOrigin: "'*'"
+
   ItemsTable:
     Type: AWS::Serverless::SimpleTable
     Properties:
@@ -31,34 +48,7 @@ Resources:
         Name: email
         Type: String
 
-  BorrowHubbFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: .
-      Handler: bootstrap
-      Runtime: provided.al2
-      Architectures:
-        - x86_64
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref ItemsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
-      Environment:
-        Variables:
-          ITEMS_TABLE_NAME: !Ref ItemsTable
-          USERS_TABLE_NAME: !Ref UsersTable
-      Events:
-        ApiEvent:
-          Type: Api
-          Properties:
-            Path: /{proxy+}
-            Method: ANY
-            # This is the crucial line to fix the 403 error
-            Auth:
-              DefaultAuthorizer: NONE
-
 Outputs:
   BorrowHubApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
-    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod/"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"

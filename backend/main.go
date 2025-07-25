@@ -1,5 +1,3 @@
-// backend/main.go
-
 package main
 
 import (
@@ -19,12 +17,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// User and Item structs
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
-
 type Item struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -33,7 +31,6 @@ type Item struct {
 	ImageURL    string  `json:"imageUrl"`
 }
 
-var jwtKey = []byte("your_secret_key")
 var db *dynamodb.DynamoDB
 var itemsTableName string
 var usersTableName string
@@ -48,32 +45,63 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	// The API Gateway's CORS configuration will handle OPTIONS requests automatically.
+	// This router will handle the actual API calls.
 	path := strings.Trim(request.Path, "/")
 
-	if request.HTTPMethod == "OPTIONS" {
-		return successfulResponse("")
+	switch request.HTTPMethod {
+	case "GET":
+		if path == "items" {
+			return getItemsHandler(request)
+		}
+	case "POST":
+		switch path {
+		case "register":
+			return registerHandler(request)
+		case "login":
+			return loginHandler(request)
+		case "items":
+			return addItemHandler(request)
+		}
 	}
-
-	if request.HTTPMethod == "GET" && path == "items" {
-		return getItemsHandler(request)
-	}
-	if request.HTTPMethod == "POST" && path == "register" {
-		return registerHandler(request)
-	}
-	if request.HTTPMethod == "POST" && path == "login" {
-		return loginHandler(request)
-	}
-	if request.HTTPMethod == "POST" && path == "items" {
-		return addItemHandler(request)
-	}
-
 	return clientError(404, "Not Found")
 }
 
+// All other functions (getItemsHandler, registerHandler, etc.) are below
+// and should be included in your file.
+
+func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{
+		StatusCode: 200,
+		Headers: map[string]string{
+			"Access-Control-Allow-Origin":  "*",
+			"Access-Control-Allow-Headers": "Content-Type,Authorization",
+			"Access-Control-Allow-Methods": "OPTIONS,GET,POST,PUT,DELETE",
+		},
+		Body: body,
+	}, nil
+}
+
+func clientError(status int, body string) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{
+		StatusCode: status,
+		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
+		Body:       body,
+	}, nil
+}
+
+func serverError(err error) (events.APIGatewayProxyResponse, error) {
+	return events.APIGatewayProxyResponse{
+		StatusCode: 500,
+		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
+		Body:       err.Error(),
+	}, nil
+}
+
+// --- Handler Functions ---
+
 func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	result, err := db.Scan(&dynamodb.ScanInput{
-		TableName: aws.String(itemsTableName),
-	})
+	result, err := db.Scan(&dynamodb.ScanInput{TableName: aws.String(itemsTableName)})
 	if err != nil {
 		return serverError(err)
 	}
@@ -94,9 +122,6 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	if err := json.Unmarshal([]byte(request.Body), &user); err != nil {
 		return serverError(err)
 	}
-	if user.Email == "" || user.Name == "" || user.Password == "" {
-		return clientError(400, "All fields are required")
-	}
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return serverError(err)
@@ -106,11 +131,7 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	if err != nil {
 		return serverError(err)
 	}
-	input := &dynamodb.PutItemInput{
-		Item:      av,
-		TableName: aws.String(usersTableName),
-	}
-	_, err = db.PutItem(input)
+	_, err = db.PutItem(&dynamodb.PutItemInput{Item: av, TableName: aws.String(usersTableName)})
 	if err != nil {
 		return serverError(err)
 	}
@@ -124,11 +145,7 @@ func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxy
 	}
 	result, err := db.GetItem(&dynamodb.GetItemInput{
 		TableName: aws.String(usersTableName),
-		Key: map[string]*dynamodb.AttributeValue{
-			"email": {
-				S: aws.String(creds.Email),
-			},
-		},
+		Key:       map[string]*dynamodb.AttributeValue{"email": {S: aws.String(creds.Email)}},
 	})
 	if err != nil {
 		return serverError(err)
@@ -144,12 +161,9 @@ func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxy
 		return clientError(401, "Invalid credentials")
 	}
 	expirationTime := time.Now().Add(24 * time.Hour)
-	claims := &jwt.RegisteredClaims{
-		Subject:   user.Email,
-		ExpiresAt: jwt.NewNumericDate(expirationTime),
-	}
+	claims := &jwt.RegisteredClaims{Subject: user.Email, ExpiresAt: jwt.NewNumericDate(expirationTime)}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(jwtKey)
+	tokenString, err := token.SignedString([]byte("your_secret_key"))
 	if err != nil {
 		return serverError(err)
 	}
@@ -167,11 +181,8 @@ func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPro
 	if err != nil {
 		return serverError(err)
 	}
-	input := &dynamodb.PutItemInput{
-		Item:      av,
-		TableName: aws.String(itemsTableName),
-	}
-	if _, err = db.PutItem(input); err != nil {
+	_, err = db.PutItem(&dynamodb.PutItemInput{Item: av, TableName: aws.String(itemsTableName)})
+	if err != nil {
 		return serverError(err)
 	}
 	body, err := json.Marshal(item)
@@ -179,38 +190,6 @@ func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPro
 		return serverError(err)
 	}
 	return successfulResponse(string(body))
-}
-
-func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
-	return events.APIGatewayProxyResponse{
-		StatusCode: 200,
-		Headers: map[string]string{
-			"Access-Control-Allow-Origin":  "*",
-			"Access-Control-Allow-Headers": "*",
-			"Access-Control-Allow-Methods": "*",
-		},
-		Body: body,
-	}, nil
-}
-
-func serverError(err error) (events.APIGatewayProxyResponse, error) {
-	return events.APIGatewayProxyResponse{
-		StatusCode: 500,
-		Headers: map[string]string{
-			"Access-Control-Allow-Origin": "*",
-		},
-		Body: err.Error(),
-	}, nil
-}
-
-func clientError(status int, body string) (events.APIGatewayProxyResponse, error) {
-	return events.APIGatewayProxyResponse{
-		StatusCode: status,
-		Headers: map[string]string{
-			"Access-Control-Allow-Origin": "*",
-		},
-		Body: body,
-	}, nil
 }
 
 func main() {
