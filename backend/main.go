@@ -48,10 +48,12 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Trim the path to handle potential inconsistencies
 	path := strings.Trim(request.Path, "/")
 
-	// This is a simple router
+	if request.HTTPMethod == "OPTIONS" {
+		return successfulResponse("")
+	}
+
 	if request.HTTPMethod == "GET" && path == "items" {
 		return getItemsHandler(request)
 	}
@@ -67,9 +69,6 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 
 	return clientError(404, "Not Found")
 }
-
-// All other functions (getItemsHandler, registerHandler, etc.) remain the same.
-// Just ensure they are present in your file.
 
 func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	result, err := db.Scan(&dynamodb.ScanInput{
