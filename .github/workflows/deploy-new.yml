@@ -61,8 +61,11 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Frontend Dependencies with Yarn
-        run: yarn install
+      # NEW STEP TO ENSURE A CLEAN BUILD
+      - name: Clear Yarn Cache and Reinstall
+        run: |
+          yarn cache clean
+          yarn install
         working-directory: frontend
 
       - name: Build Frontend with Yarn
