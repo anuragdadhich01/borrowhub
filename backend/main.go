@@ -4,7 +4,7 @@ package main
 
 import (
 	"encoding/json"
-	"fmt" // Import the fmt package
+	"fmt"
 	"os"
 	"time"
 
@@ -18,14 +18,12 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// User struct for storing user data
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-// Item struct to hold our item data - NOW WITH MORE FIELDS!
 type Item struct {
 	ID          string  `json:"id"`
 	Name        string  `json:"name"`
@@ -34,7 +32,6 @@ type Item struct {
 	ImageURL    string  `json:"imageUrl"`
 }
 
-// JWT secret key - in a real app, get this from a secure secret manager
 var jwtKey = []byte("your_secret_key")
 
 var db *dynamodb.DynamoDB
@@ -50,9 +47,7 @@ func init() {
 	usersTableName = os.Getenv("USERS_TABLE_NAME")
 }
 
-// Main handler that routes requests based on the path and method
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Simple router based on path and method
 	switch request.HTTPMethod {
 	case "GET":
 		if request.Path == "/items" {
@@ -77,7 +72,6 @@ func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPro
 		return serverError(err)
 	}
 
-	// Generate a simple unique ID using the current timestamp
 	item.ID = fmt.Sprintf("item_%d", time.Now().UnixNano())
 
 	av, err := dynamodbattribute.MarshalMap(item)
@@ -94,7 +88,6 @@ func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPro
 		return serverError(err)
 	}
 
-	// Return the created item
 	body, err := json.Marshal(item)
 	if err != nil {
 		return serverError(err)
@@ -204,6 +197,7 @@ func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(string(body))
 }
 
+// FIX: Added "Authorization" to the list of allowed headers
 var corsHeaders = map[string]string{
 	"Access-Control-Allow-Origin":  "*",
 	"Access-Control-Allow-Headers": "Content-Type,Authorization",
