@@ -12,7 +12,7 @@ jobs:
       id-token: write
       contents: read
     outputs:
-      apiUrl: 'https://zstkr6r24k.execute-api.us-east-1.amazonaws.com/prod'
+      apiUrl: 'https://4kqty37vn5.execute-api.us-east-1.amazonaws.com/prod'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,12 +32,10 @@ jobs:
       - name: Setup SAM CLI
         uses: aws-actions/setup-sam@v2
 
-      - name: Build Backend
-        run: sam build --use-container
-        working-directory: backend
-
-      - name: Deploy Backend
-        run: sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
+      - name: Build and Deploy Backend
+        run: |
+          sam build --use-container
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
         working-directory: backend
 
   deploy-frontend:
@@ -61,15 +59,13 @@ jobs:
         with:
           node-version: '20'
 
-      # NEW STEP TO ENSURE A CLEAN BUILD
-      - name: Clear Yarn Cache and Reinstall
+      # THIS IS THE CRITICAL NEW STEP
+      - name: Clean Install and Build Frontend
         run: |
           yarn cache clean
+          rm -rf node_modules
           yarn install
-        working-directory: frontend
-
-      - name: Build Frontend with Yarn
-        run: yarn build
+          yarn build
         working-directory: frontend
         env:
           VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
