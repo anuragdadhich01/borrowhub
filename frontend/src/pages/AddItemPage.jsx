@@ -1,3 +1,5 @@
+// frontend/src/pages/AddItemPage.jsx
+
 import React, { useState } from 'react';
 import {
   Container,
@@ -7,8 +9,12 @@ import {
   TextField,
   Button,
   Grid,
+  CircularProgress,
+  Alert
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
 const AddItemPage = () => {
   const [formData, setFormData] = useState({
@@ -17,16 +23,34 @@ const AddItemPage = () => {
     dailyRate: '',
     imageUrl: '',
   });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const navigate = useNavigate();
+  const API_ENDPOINT = `${import.meta.env.VITE_API_BASE_URL}/items`;
 
   const { name, description, dailyRate, imageUrl } = formData;
 
   const onChange = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
 
-  const onSubmit = (e) => {
+  const onSubmit = async (e) => {
     e.preventDefault();
-    // We will add the logic to submit this to the backend next
-    console.log('Add Item form submitted', formData);
+    setLoading(true);
+    setError('');
+    try {
+      const itemData = {
+        ...formData,
+        dailyRate: parseFloat(dailyRate) // Convert rate to a number
+      };
+      await axios.post(API_ENDPOINT, itemData);
+      alert('Item listed successfully!');
+      navigate('/');
+    } catch (err) {
+      setError('Failed to list item. Please try again.');
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -96,13 +120,15 @@ const AddItemPage = () => {
               />
             </Grid>
           </Grid>
+          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
           <Button
             type="submit"
             fullWidth
             variant="contained"
             sx={{ mt: 3, mb: 2 }}
+            disabled={loading}
           >
-            List My Item
+            {loading ? <CircularProgress size={24} /> : 'List My Item'}
           </Button>
         </Box>
       </Box>

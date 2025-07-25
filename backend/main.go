@@ -1,7 +1,10 @@
+// backend/main.go
+
 package main
 
 import (
 	"encoding/json"
+	"fmt" // Import the fmt package
 	"os"
 	"time"
 
@@ -22,10 +25,13 @@ type User struct {
 	Password string `json:"password"`
 }
 
-// Item struct to hold our item data
+// Item struct to hold our item data - NOW WITH MORE FIELDS!
 type Item struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	DailyRate   float64 `json:"dailyRate"`
+	ImageURL    string  `json:"imageUrl"`
 }
 
 // JWT secret key - in a real app, get this from a secure secret manager
@@ -44,18 +50,57 @@ func init() {
 	usersTableName = os.Getenv("USERS_TABLE_NAME")
 }
 
-// Main handler that routes requests based on the path
+// Main handler that routes requests based on the path and method
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	switch request.Path {
-	case "/items":
-		return getItemsHandler(request)
-	case "/register":
-		return registerHandler(request)
-	case "/login":
-		return loginHandler(request)
-	default:
-		return clientError(404, "Not Found")
+	// Simple router based on path and method
+	switch request.HTTPMethod {
+	case "GET":
+		if request.Path == "/items" {
+			return getItemsHandler(request)
+		}
+	case "POST":
+		switch request.Path {
+		case "/register":
+			return registerHandler(request)
+		case "/login":
+			return loginHandler(request)
+		case "/items":
+			return addItemHandler(request)
+		}
 	}
+	return clientError(404, "Not Found: Invalid path or method")
+}
+
+func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	var item Item
+	if err := json.Unmarshal([]byte(request.Body), &item); err != nil {
+		return serverError(err)
+	}
+
+	// Generate a simple unique ID using the current timestamp
+	item.ID = fmt.Sprintf("item_%d", time.Now().UnixNano())
+
+	av, err := dynamodbattribute.MarshalMap(item)
+	if err != nil {
+		return serverError(err)
+	}
+
+	input := &dynamodb.PutItemInput{
+		Item:      av,
+		TableName: aws.String(itemsTableName),
+	}
+
+	if _, err = db.PutItem(input); err != nil {
+		return serverError(err)
+	}
+
+	// Return the created item
+	body, err := json.Marshal(item)
+	if err != nil {
+		return serverError(err)
+	}
+
+	return successfulResponse(string(body))
 }
 
 func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
@@ -64,7 +109,6 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 		return serverError(err)
 	}
 
-	// Basic validation
 	if user.Email == "" || user.Name == "" || user.Password == "" {
 		return clientError(400, "All fields are required")
 	}
@@ -160,13 +204,10 @@ func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(string(body))
 }
 
-// --- Helper functions for responses ---
-
-// All responses now include CORS headers
 var corsHeaders = map[string]string{
 	"Access-Control-Allow-Origin":  "*",
-	"Access-Control-Allow-Headers": "Content-Type",
-	"Access-Control-Allow-Methods": "OPTIONS,POST,GET",
+	"Access-Control-Allow-Headers": "Content-Type,Authorization",
+	"Access-Control-Allow-Methods": "OPTIONS,POST,GET,PUT,DELETE",
 }
 
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {

@@ -1,9 +1,12 @@
+// frontend/src/main.jsx
+
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
+import { AuthProvider } from './context/AuthContext'; // We've added this line
 
 // Create a default theme for Material-UI
 const theme = createTheme({
@@ -23,9 +26,10 @@ const theme = createTheme({
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ThemeProvider theme={theme}>
-      {/* CssBaseline kickstarts an elegant, consistent, and simple baseline to build upon. */}
       <CssBaseline />
-      <App />
+      <AuthProvider> {/* This wrapper makes login state available everywhere */}
+        <App />
+      </AuthProvider>
     </ThemeProvider>
   </React.StrictMode>
 );
