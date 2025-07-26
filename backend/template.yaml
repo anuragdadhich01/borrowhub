@@ -1,50 +1,70 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Transform: AWS::Serverless-2016-10-31
-Description: >
-  borrow-hub
-  Backend API for the BorrowHub application
+name: Deploy Full Stack Application (New)
 
-Resources:
-  BorrowHubbFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: .
-      Handler: bootstrap
-      Runtime: provided.al2
-      Timeout: 10
-      Policies:
-        - DynamoDBCrudPolicy:
-            TableName: !Ref ItemsTable
-        - DynamoDBCrudPolicy:
-            TableName: !Ref UsersTable
-      Environment:
-        Variables:
-          ITEMS_TABLE_NAME: !Ref ItemsTable
-          USERS_TABLE_NAME: !Ref UsersTable
-      Events:
-        Api:
-          Type: Api
-          Properties:
-            Path: /{proxy+}
-            Method: any
+on:
+  push:
+    branches:
+      - main
 
-  ItemsTable:
-    Type: AWS::Serverless::SimpleTable
-    Properties:
-      TableName: items
-      PrimaryKey:
-        Name: id
-        Type: String
+jobs:
+  deploy-backend:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    outputs:
+      apiUrl: 'https://4kqty37vn5.execute-api.us-east-1.amazonaws.com/prod'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-  UsersTable:
-    Type: AWS::Serverless::SimpleTable
-    Properties:
-      TableName: users
-      PrimaryKey:
-        Name: email
-        Type: String
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::722121531871:role/GitHubAction-AssumeRole-BorrowHubb
+          aws-region: us-east-1
 
-Outputs:
-  BorrowHubApi:
-    Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
-    Value: !Sub "https://://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/prod"
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+
+      - name: Build and Deploy Backend
+        run: |
+          sam build --use-container
+          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
+        working-directory: backend
+
+  deploy-frontend:
+    runs-on: ubuntu-latest
+    needs: deploy-backend
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::722121531871:role/GitHubAction-AssumeRole-BorrowHubb
+          aws-region: us-east-1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install and Build Frontend
+        run: |
+          yarn install
+          yarn build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ${{ needs.deploy-backend.outputs.apiUrl }}
+
+      - name: Deploy Frontend to S3
+        run: aws s3 sync frontend/dist s3://borrowhub-frontend-722121531871 --delete
