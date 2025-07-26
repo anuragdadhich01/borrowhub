@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"log" // Import the log package
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -18,7 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// User and Item structs remain the same...
+// User and Item structs
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
@@ -46,27 +46,26 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// THIS IS THE NEW DIAGNOSTIC LOGGING
 	log.Printf("Handler invoked. Method: %s, Path: %s", request.HTTPMethod, request.Path)
 
+	// Handle CORS preflight requests
 	if request.HTTPMethod == "OPTIONS" {
 		log.Println("Handling OPTIONS preflight request")
 		return successfulResponse("")
 	}
 
-	path := strings.Trim(request.Path, "/")
-	pathParts := strings.Split(path, "/")
-	resource := pathParts[len(pathParts)-1]
-
-	log.Printf("Routing request for resource: %s", resource)
+	// CORRECTED ROUTER LOGIC
+	// Use PathParameters["proxy"] to get the path part after the stage name (e.g., "items" or "register")
+	path := strings.Trim(request.PathParameters["proxy"], "/")
+	log.Printf("Routing request for path: %s", path)
 
 	switch request.HTTPMethod {
 	case "GET":
-		if resource == "items" {
+		if path == "items" {
 			return getItemsHandler(request)
 		}
 	case "POST":
-		switch resource {
+		switch path {
 		case "register":
 			return registerHandler(request)
 		case "login":
@@ -80,7 +79,6 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 	return clientError(404, "Not Found")
 }
 
-// All other functions (successfulResponse, getItemsHandler, etc.) remain the same...
 // --- Response Helpers ---
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
@@ -101,7 +99,7 @@ func clientError(status int, body string) (events.APIGatewayProxyResponse, error
 	}, nil
 }
 func serverError(err error) (events.APIGatewayProxyResponse, error) {
-	log.Printf("Server Error: %s", err.Error()) // Add logging for server errors
+	log.Printf("Server Error: %s", err.Error())
 	return events.APIGatewayProxyResponse{
 		StatusCode: 500,
 		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
