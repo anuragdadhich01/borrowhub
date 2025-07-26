@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log" // Import the log package
 	"os"
 	"strings"
 	"time"
@@ -17,7 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// BorrowHub User and Item structs
+// User and Item structs remain the same...
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
@@ -45,15 +46,19 @@ func init() {
 }
 
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Handle CORS preflight requests
+	// THIS IS THE NEW DIAGNOSTIC LOGGING
+	log.Printf("Handler invoked. Method: %s, Path: %s", request.HTTPMethod, request.Path)
+
 	if request.HTTPMethod == "OPTIONS" {
+		log.Println("Handling OPTIONS preflight request")
 		return successfulResponse("")
 	}
 
-	// Simple router based on the path
 	path := strings.Trim(request.Path, "/")
 	pathParts := strings.Split(path, "/")
 	resource := pathParts[len(pathParts)-1]
+
+	log.Printf("Routing request for resource: %s", resource)
 
 	switch request.HTTPMethod {
 	case "GET":
@@ -70,9 +75,12 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 			return addItemHandler(request)
 		}
 	}
+
+	log.Printf("No route found for %s %s", request.HTTPMethod, request.Path)
 	return clientError(404, "Not Found")
 }
 
+// All other functions (successfulResponse, getItemsHandler, etc.) remain the same...
 // --- Response Helpers ---
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
@@ -93,6 +101,7 @@ func clientError(status int, body string) (events.APIGatewayProxyResponse, error
 	}, nil
 }
 func serverError(err error) (events.APIGatewayProxyResponse, error) {
+	log.Printf("Server Error: %s", err.Error()) // Add logging for server errors
 	return events.APIGatewayProxyResponse{
 		StatusCode: 500,
 		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
@@ -102,6 +111,7 @@ func serverError(err error) (events.APIGatewayProxyResponse, error) {
 
 // --- Handler Functions ---
 func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	log.Println("Executing getItemsHandler")
 	result, err := db.Scan(&dynamodb.ScanInput{TableName: aws.String(itemsTableName)})
 	if err != nil {
 		return serverError(err)
@@ -118,6 +128,7 @@ func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(string(body))
 }
 func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	log.Println("Executing registerHandler")
 	var user User
 	if err := json.Unmarshal([]byte(request.Body), &user); err != nil {
 		return serverError(err)
@@ -138,6 +149,7 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(`{"message": "User registered successfully"}`)
 }
 func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	log.Println("Executing loginHandler")
 	var creds User
 	if err := json.Unmarshal([]byte(request.Body), &creds); err != nil {
 		return clientError(400, "Invalid request body")
@@ -170,6 +182,7 @@ func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxy
 	return successfulResponse(string(responseBody))
 }
 func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	log.Println("Executing addItemHandler")
 	var item Item
 	if err := json.Unmarshal([]byte(request.Body), &item); err != nil {
 		return serverError(err)
