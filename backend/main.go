@@ -17,7 +17,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// User and Item structs
+// BorrowHub User and Item structs
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
