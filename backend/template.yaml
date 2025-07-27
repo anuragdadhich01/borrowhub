@@ -2,14 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 Description: >
   borrow-hub
-  Backend API for the BorrowHub application
-
-Globals:
-  Api:
-    Cors:
-      AllowMethods: "'*'"
-      AllowHeaders: "'Content-Type,Authorization'"
-      AllowOrigin: "'*'"
+  A simple, robust backend for the BorrowHub application.
 
 Resources:
   BorrowHubbFunction:
@@ -18,7 +11,7 @@ Resources:
       CodeUri: .
       Handler: bootstrap
       Runtime: provided.al2
-      Timeout: 10
+      Timeout: 15
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ItemsTable
@@ -33,7 +26,11 @@ Resources:
           Type: Api
           Properties:
             Path: /{proxy+}
-            Method: any
+            Method: ANY
+            Cors:
+              AllowMethods: "'GET,POST,OPTIONS'"
+              AllowHeaders: "'Content-Type,Authorization'"
+              AllowOrigin: "'*'"
 
   ItemsTable:
     Type: AWS::Serverless::SimpleTable
