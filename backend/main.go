@@ -18,7 +18,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// BorrowHub User and Item structs (v2)
+// User and Item structs
 type User struct {
 	Name     string `json:"name"`
 	Email    string `json:"email"`
@@ -54,8 +54,7 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 		return successfulResponse("")
 	}
 
-	// CORRECTED ROUTER LOGIC
-	// Use PathParameters["proxy"] to get the path part after the stage name (e.g., "items" or "register")
+	// CORRECTED ROUTER LOGIC: Use PathParameters["proxy"] for routing
 	path := strings.Trim(request.PathParameters["proxy"], "/")
 	log.Printf("Routing request for path: %s", path)
 
