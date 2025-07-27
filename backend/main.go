@@ -48,8 +48,10 @@ func init() {
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	log.Printf("Handler invoked. Method: %s, Path: %s", request.HTTPMethod, request.Path)
 
-	// API Gateway's CORS config handles OPTIONS, so we just need to add headers to our actual responses.
-	// This router uses the "proxy" path parameter, which is the correct way for this setup.
+	if request.HTTPMethod == "OPTIONS" {
+		return successfulResponse("")
+	}
+
 	path := strings.Trim(request.PathParameters["proxy"], "/")
 	log.Printf("Routing request for path: %s", path)
 
@@ -74,29 +76,29 @@ func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyRespo
 }
 
 // --- Response Helpers ---
+// All responses now return a valid JSON body to prevent frontend parsing errors.
 func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 	return events.APIGatewayProxyResponse{
 		StatusCode: 200,
-		Headers: map[string]string{
-			"Access-Control-Allow-Origin":  "*",
-			"Access-Control-Allow-Headers": "Content-Type,Authorization",
-		},
-		Body: body,
+		Headers:    map[string]string{"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+		Body:       body,
 	}, nil
 }
-func clientError(status int, body string) (events.APIGatewayProxyResponse, error) {
+func clientError(status int, message string) (events.APIGatewayProxyResponse, error) {
+	body, _ := json.Marshal(map[string]string{"message": message})
 	return events.APIGatewayProxyResponse{
 		StatusCode: status,
-		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
-		Body:       fmt.Sprintf(`{"message":"%s"}`, body),
+		Headers:    map[string]string{"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+		Body:       string(body),
 	}, nil
 }
 func serverError(err error) (events.APIGatewayProxyResponse, error) {
 	log.Printf("Server Error: %s", err.Error())
+	body, _ := json.Marshal(map[string]string{"message": err.Error()})
 	return events.APIGatewayProxyResponse{
 		StatusCode: 500,
-		Headers:    map[string]string{"Access-Control-Allow-Origin": "*"},
-		Body:       err.Error(),
+		Headers:    map[string]string{"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
+		Body:       string(body),
 	}, nil
 }
 
@@ -135,7 +137,8 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	if err != nil {
 		return serverError(err)
 	}
-	return successfulResponse(`{"message": "User registered successfully"}`)
+	body, _ := json.Marshal(map[string]string{"message": "User registered successfully"})
+	return successfulResponse(string(body))
 }
 func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	var creds User
