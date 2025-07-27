@@ -29,7 +29,7 @@ const AddItemPage = () => {
   // frontend/src/pages/AddItemPage.jsx
 
   // REPLACE THIS LINE
- const API_ENDPOINT = 'https://zepve4uj65.execute-api.us-east-1.amazonaws.com/Prod/items';
+ const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/items';
   const { name, description, dailyRate, imageUrl } = formData;
 
   const onChange = (e) =>

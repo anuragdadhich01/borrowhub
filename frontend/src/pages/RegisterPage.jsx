@@ -29,7 +29,7 @@ const RegisterPage = () => {
   const navigate = useNavigate();
 
   // FIX: Using the correct, single path for the register endpoint
- const API_ENDPOINT = 'https://zepve4uj65.execute-api.us-east-1.amazonaws.com/Prod/register';
+ const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/register';
 
   const { name, email, password } = formData;
 

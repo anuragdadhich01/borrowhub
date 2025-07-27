@@ -22,7 +22,7 @@ const HomePage = () => {
     const [error, setError] = useState(null);
 
     // Hardcoded correct URL
-   const API_ENDPOINT = 'https://zepve4uj65.execute-api.us-east-1.amazonaws.com/Prod/items';
+   const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/items';
 
     useEffect(() => {
         const fetchItems = async () => {
