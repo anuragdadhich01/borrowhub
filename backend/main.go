@@ -48,13 +48,8 @@ func init() {
 func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	log.Printf("Handler invoked. Method: %s, Path: %s", request.HTTPMethod, request.Path)
 
-	// Handle CORS preflight requests
-	if request.HTTPMethod == "OPTIONS" {
-		log.Println("Handling OPTIONS preflight request")
-		return successfulResponse("")
-	}
-
-	// CORRECTED ROUTER LOGIC: Use PathParameters["proxy"] for routing
+	// API Gateway's CORS config handles OPTIONS, so we just need to add headers to our actual responses.
+	// This router uses the "proxy" path parameter, which is the correct way for this setup.
 	path := strings.Trim(request.PathParameters["proxy"], "/")
 	log.Printf("Routing request for path: %s", path)
 
@@ -85,7 +80,6 @@ func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
 		Headers: map[string]string{
 			"Access-Control-Allow-Origin":  "*",
 			"Access-Control-Allow-Headers": "Content-Type,Authorization",
-			"Access-Control-Allow-Methods": "OPTIONS,GET,POST,PUT,DELETE",
 		},
 		Body: body,
 	}, nil
@@ -108,7 +102,6 @@ func serverError(err error) (events.APIGatewayProxyResponse, error) {
 
 // --- Handler Functions ---
 func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Println("Executing getItemsHandler")
 	result, err := db.Scan(&dynamodb.ScanInput{TableName: aws.String(itemsTableName)})
 	if err != nil {
 		return serverError(err)
@@ -125,7 +118,6 @@ func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(string(body))
 }
 func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Println("Executing registerHandler")
 	var user User
 	if err := json.Unmarshal([]byte(request.Body), &user); err != nil {
 		return serverError(err)
@@ -146,7 +138,6 @@ func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayPr
 	return successfulResponse(`{"message": "User registered successfully"}`)
 }
 func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Println("Executing loginHandler")
 	var creds User
 	if err := json.Unmarshal([]byte(request.Body), &creds); err != nil {
 		return clientError(400, "Invalid request body")
@@ -179,7 +170,6 @@ func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxy
 	return successfulResponse(string(responseBody))
 }
 func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Println("Executing addItemHandler")
 	var item Item
 	if err := json.Unmarshal([]byte(request.Body), &item); err != nil {
 		return serverError(err)

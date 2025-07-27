@@ -31,7 +31,7 @@ const LoginPage = () => {
  // frontend/src/pages/LoginPage.jsx
 
   // REPLACE THIS LINE
-  const API_ENDPOINT = 'https://4kqty37vn5.execute-api.us-east-1.amazonaws.com/prod/login';
+  const API_ENDPOINT = 'https://fx6zogg94h.execute-api.us-east-1.amazonaws.com/prod/login';
 
   const { email, password } = formData;
 
