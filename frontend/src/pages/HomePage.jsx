@@ -22,14 +22,14 @@ const HomePage = () => {
     const [error, setError] = useState(null);
 
     // Hardcoded correct URL
-   const API_ENDPOINT = 'https://t59ux4gf2f.execute-api.us-east-1.amazonaws.com/prod/items';
+   const API_ENDPOINT = 'https://zepve4uj65.execute-api.us-east-1.amazonaws.com/Prod/items';
 
     useEffect(() => {
         const fetchItems = async () => {
             try {
                 setLoading(true);
                 const res = await axios.get(API_ENDPOINT);
-                const parsedItems = JSON.parse(res.data.body);
+                const parsedItems = res.data;
                 setItems(parsedItems || []);
                 setError(null);
             } catch (err) {
