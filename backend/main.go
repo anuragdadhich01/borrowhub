@@ -18,7 +18,6 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
-	"github.com/rs/cors"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -202,23 +201,49 @@ func validateJWT(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
-// CORS helper function
-func setCORSHeaders(w http.ResponseWriter) {
-	// Allow different origins based on environment
-	origin := "https://borrowhubb.live"
-	if os.Getenv("AWS_LAMBDA_RUNTIME_API") == "" {
-		// Development mode - allow localhost
-		origin = "*" // For development, allow all origins
-	}
-	w.Header().Set("Access-Control-Allow-Origin", origin)
-	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Origin")
-	w.Header().Set("Access-Control-Allow-Credentials", "true")
+// Custom CORS middleware for better control
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		
+		// Allow these origins
+		allowedOrigins := []string{
+			"https://borrowhubb.live",
+			"http://localhost:5173",
+			"http://127.0.0.1:5173",
+			"http://localhost:3000",
+		}
+		
+		// Check if origin is allowed
+		originAllowed := false
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				originAllowed = true
+				break
+			}
+		}
+		
+		if originAllowed {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		}
+		
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
+		
+		// Handle preflight OPTIONS requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Utility functions
 func respondWithJSON(w http.ResponseWriter, status int, payload interface{}) {
-	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(payload)
@@ -233,7 +258,7 @@ func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Handle OPTIONS preflight requests
 		if r.Method == "OPTIONS" {
-			setCORSHeaders(w)
+			// Let CORS middleware handle this
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -782,15 +807,6 @@ func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder) event
 func setupRouter() {
 	router := mux.NewRouter()
 
-	// Enhanced CORS configuration
-	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"https://borrowhubb.live", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"}, // Production and development origins
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin"},
-		AllowCredentials: true,
-		Debug:           true, // Enable debug for development
-	})
-
 	// Authentication routes (no /api prefix to match frontend)
 	router.HandleFunc("/register", register).Methods("POST", "OPTIONS")
 	router.HandleFunc("/login", login).Methods("POST", "OPTIONS")
@@ -823,17 +839,16 @@ func setupRouter() {
 	// OPTIONS handler for preflight requests
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "OPTIONS" {
-			setCORSHeaders(w)
+			// This will be handled by corsMiddleware
 			w.WriteHeader(http.StatusOK)
 			return
 		}
 		// Handle 404 for other requests
-		setCORSHeaders(w)
 		respondWithError(w, http.StatusNotFound, "Endpoint not found")
 	}).Methods("OPTIONS", "GET", "POST", "PUT", "DELETE")
 
-	// Wrap router with CORS and authentication middleware
-	httpHandler = c.Handler(authMiddleware(router))
+	// Wrap router with custom CORS and authentication middleware
+	httpHandler = corsMiddleware(authMiddleware(router))
 }
 
 func main() {
