@@ -174,6 +174,8 @@ const Navbar = () => {
             </Button>
             <Button 
               color="inherit"
+              component={RouterLink}
+              to="/categories"
               sx={{ 
                 color: 'text.primary',
                 fontWeight: 500,
@@ -186,6 +188,8 @@ const Navbar = () => {
             </Button>
             <Button 
               color="inherit"
+              component={RouterLink}
+              to="/how-it-works"
               sx={{ 
                 color: 'text.primary',
                 fontWeight: 500,

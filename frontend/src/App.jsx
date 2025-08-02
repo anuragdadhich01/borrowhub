@@ -11,6 +11,12 @@ import ItemDetailsPage from './pages/ItemDetailsPage';
 import PaymentPage from './pages/PaymentPage';
 import ProfilePage from './pages/ProfilePage';
 import BookingsPage from './pages/BookingsPage';
+import AboutPage from './pages/AboutPage';
+import HowItWorksPage from './pages/HowItWorksPage';
+import ContactPage from './pages/ContactPage';
+import CategoriesPage from './pages/CategoriesPage';
+import CategoryDetailPage from './pages/CategoryDetailPage';
+import NotFoundPage from './pages/NotFoundPage';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Box, Container } from '@mui/material';
@@ -24,6 +30,8 @@ function App() {
           <Box component="main" sx={{ flexGrow: 1 }}>
             <Routes>
               <Route path="/" element={<HomePage />} />
+              
+              {/* Authentication Routes */}
               <Route path="/register" element={
                 <Container component="main" sx={{ mt: 4, mb: 4 }}>
                   <RegisterPage />
@@ -34,11 +42,22 @@ function App() {
                   <LoginPage />
                 </Container>
               } />
+
+              {/* Public Pages */}
+              <Route path="/about" element={<AboutPage />} />
+              <Route path="/how-it-works" element={<HowItWorksPage />} />
+              <Route path="/contact" element={<ContactPage />} />
+              <Route path="/categories" element={<CategoriesPage />} />
+              <Route path="/category/:category" element={<CategoryDetailPage />} />
+
+              {/* Item Routes */}
               <Route path="/item/:id" element={
                 <Container component="main" sx={{ mt: 4, mb: 4 }}>
                   <ItemDetailsPage />
                 </Container>
               } />
+
+              {/* Private Routes */}
               <Route
                 path="/add-item"
                 element={
@@ -79,6 +98,9 @@ function App() {
                   </PrivateRoute>
                 }
               />
+
+              {/* 404 Route - Must be last */}
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Box>
         </Box>
