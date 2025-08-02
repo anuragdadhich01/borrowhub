@@ -195,8 +195,17 @@ func validateJWT(tokenString string) (*Claims, error) {
 	return claims, nil
 }
 
+// CORS helper function
+func setCORSHeaders(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "https://borrowhubb.live")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Credentials", "true")
+}
+
 // Utility functions
 func respondWithJSON(w http.ResponseWriter, status int, payload interface{}) {
+	setCORSHeaders(w)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(payload)
@@ -209,6 +218,13 @@ func respondWithError(w http.ResponseWriter, status int, message string) {
 // Authentication middleware
 func authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Handle OPTIONS preflight requests
+		if r.Method == "OPTIONS" {
+			setCORSHeaders(w)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
 		// Skip auth for public endpoints
 		if (strings.HasPrefix(r.URL.Path, "/items") || strings.HasPrefix(r.URL.Path, "/api/items")) && r.Method == "GET" ||
 		   r.URL.Path == "/login" ||
@@ -643,40 +659,52 @@ func main() {
 
 	// Enhanced CORS configuration
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"}, // In production, specify exact origins
+		AllowedOrigins:   []string{"https://borrowhubb.live", "http://localhost:5173", "http://127.0.0.1:5173"}, // Production and development origins
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"*"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "Accept", "X-Requested-With"},
 		AllowCredentials: true,
 	})
 
 	// Authentication routes (no /api prefix to match frontend)
-	router.HandleFunc("/register", register).Methods("POST")
-	router.HandleFunc("/login", login).Methods("POST")
+	router.HandleFunc("/register", register).Methods("POST", "OPTIONS")
+	router.HandleFunc("/login", login).Methods("POST", "OPTIONS")
 
 	// Item routes (support both /items and /api/items patterns)
-	router.HandleFunc("/items", getItems).Methods("GET")
-	router.HandleFunc("/items/{id}", getItemDetails).Methods("GET")
-	router.HandleFunc("/api/items", getItems).Methods("GET")
-	router.HandleFunc("/api/items/{id}", getItemDetails).Methods("GET")
-	router.HandleFunc("/api/items", addItem).Methods("POST")
+	router.HandleFunc("/items", getItems).Methods("GET", "OPTIONS")
+	router.HandleFunc("/items/{id}", getItemDetails).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/items", getItems).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/items/{id}", getItemDetails).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/items", addItem).Methods("POST", "OPTIONS")
 
 	// Booking routes (with /api prefix to match frontend)
-	router.HandleFunc("/api/bookings", createBooking).Methods("POST")
-	router.HandleFunc("/api/bookings", getUserBookings).Methods("GET")
-	router.HandleFunc("/bookings", getUserBookings).Methods("GET") // Alternative endpoint
-	router.HandleFunc("/api/bookings/{id}", updateBookingStatus).Methods("PUT")
-	router.HandleFunc("/bookings/{id}", updateBookingStatus).Methods("PUT") // Alternative endpoint
+	router.HandleFunc("/api/bookings", createBooking).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/bookings", getUserBookings).Methods("GET", "OPTIONS")
+	router.HandleFunc("/bookings", getUserBookings).Methods("GET", "OPTIONS") // Alternative endpoint
+	router.HandleFunc("/api/bookings/{id}", updateBookingStatus).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/bookings/{id}", updateBookingStatus).Methods("PUT", "OPTIONS") // Alternative endpoint
 
 	// Profile routes (support both patterns)
-	router.HandleFunc("/api/profile", getUserProfile).Methods("GET")
-	router.HandleFunc("/profile", getUserProfile).Methods("GET")
-	router.HandleFunc("/api/profile", updateUserProfile).Methods("PUT")
-	router.HandleFunc("/profile", updateUserProfile).Methods("PUT")
+	router.HandleFunc("/api/profile", getUserProfile).Methods("GET", "OPTIONS")
+	router.HandleFunc("/profile", getUserProfile).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/profile", updateUserProfile).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/profile", updateUserProfile).Methods("PUT", "OPTIONS")
 
 	// Health check endpoint
 	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		respondWithJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
 	}).Methods("GET")
+
+	// OPTIONS handler for preflight requests
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "OPTIONS" {
+			setCORSHeaders(w)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		// Handle 404 for other requests
+		setCORSHeaders(w)
+		respondWithError(w, http.StatusNotFound, "Endpoint not found")
+	}).Methods("OPTIONS", "GET", "POST", "PUT", "DELETE")
 
 	// Wrap router with CORS and authentication middleware
 	handler := c.Handler(authMiddleware(router))
