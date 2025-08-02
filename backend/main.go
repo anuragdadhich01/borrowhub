@@ -1,198 +1,79 @@
 package main
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"os"
-	"strings"
-	"time"
-
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/dynamodb"
-	"github.com/aws/aws-sdk-go/service/dynamodb/dynamodbattribute"
-	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/bcrypt"
+	"net/http"
+	"github.com/gorilla/mux"
+	"github.com/rs/cors"
 )
 
-// User and Item structs
-type User struct {
-	Name     string `json:"name"`
-	Email    string `json:"email"`
-	Password string `json:"password"`
-}
+// Item represents an item in the system
 type Item struct {
-	ID          string  `json:"id"`
-	Name        string  `json:"name"`
-	Description string  `json:"description"`
-	DailyRate   float64 `json:"dailyRate"`
-	ImageURL    string  `json:"imageUrl"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Price int    `json:"price"`
 }
 
-var db *dynamodb.DynamoDB
-var itemsTableName string
-var usersTableName string
-
-func init() {
-	sess := session.Must(session.NewSessionWithOptions(session.Options{
-		SharedConfigState: session.SharedConfigEnable,
-	}))
-	db = dynamodb.New(sess)
-	itemsTableName = os.Getenv("ITEMS_TABLE_NAME")
-	usersTableName = os.Getenv("USERS_TABLE_NAME")
+// User represents a user in the system
+type User struct {
+	ID       string `json:"id"`
+	Username string `json:"username"`
 }
 
-func handler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Printf("Handler invoked. Method: %s, Path: %s", request.HTTPMethod, request.Path)
-
-	if request.HTTPMethod == "OPTIONS" {
-		return successfulResponse("")
-	}
-
-	path := strings.Trim(request.PathParameters["proxy"], "/")
-	log.Printf("Routing request for path: %s", path)
-
-	switch request.HTTPMethod {
-	case "GET":
-		if path == "items" {
-			return getItemsHandler(request)
-		}
-	case "POST":
-		switch path {
-		case "register":
-			return registerHandler(request)
-		case "login":
-			return loginHandler(request)
-		case "items":
-			return addItemHandler(request)
-		}
-	}
-
-	log.Printf("No route found for %s %s", request.HTTPMethod, request.Path)
-	return clientError(404, "Not Found")
+// Booking represents a booking for an item
+type Booking struct {
+	ID     string `json:"id"`
+	ItemID string `json:"item_id"`
+	UserID string `json:"user_id"`
 }
 
-// --- Response Helpers ---
-// All responses now return a valid JSON body to prevent frontend parsing errors.
-func successfulResponse(body string) (events.APIGatewayProxyResponse, error) {
-	return events.APIGatewayProxyResponse{
-		StatusCode: 200,
-		Headers:    map[string]string{"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
-		Body:       body,
-	}, nil
-}
-func clientError(status int, message string) (events.APIGatewayProxyResponse, error) {
-	body, _ := json.Marshal(map[string]string{"message": message})
-	return events.APIGatewayProxyResponse{
-		StatusCode: status,
-		Headers:    map[string]string{"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
-		Body:       string(body),
-	}, nil
-}
-func serverError(err error) (events.APIGatewayProxyResponse, error) {
-	log.Printf("Server Error: %s", err.Error())
-	body, _ := json.Marshal(map[string]string{"message": err.Error()})
-	return events.APIGatewayProxyResponse{
-		StatusCode: 500,
-		Headers:    map[string]string{"Access-Control-Allow-Origin": "*", "Content-Type": "application/json"},
-		Body:       string(body),
-	}, nil
+// Handlers for items
+func getItems(w http.ResponseWriter, r *http.Request) {
+	// Implementation for getting items
 }
 
-// --- Handler Functions ---
-func getItemsHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	result, err := db.Scan(&dynamodb.ScanInput{TableName: aws.String(itemsTableName)})
-	if err != nil {
-		return serverError(err)
-	}
-	var items []Item
-	err = dynamodbattribute.UnmarshalListOfMaps(result.Items, &items)
-	if err != nil {
-		return serverError(err)
-	}
-	body, err := json.Marshal(items)
-	if err != nil {
-		return serverError(err)
-	}
-	return successfulResponse(string(body))
+func getItemDetails(w http.ResponseWriter, r *http.Request) {
+	// Implementation for getting item details
 }
-func registerHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var user User
-	if err := json.Unmarshal([]byte(request.Body), &user); err != nil {
-		return serverError(err)
-	}
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return serverError(err)
-	}
-	user.Password = string(hashedPassword)
-	av, err := dynamodbattribute.MarshalMap(user)
-	if err != nil {
-		return serverError(err)
-	}
-	_, err = db.PutItem(&dynamodb.PutItemInput{Item: av, TableName: aws.String(usersTableName)})
-	if err != nil {
-		return serverError(err)
-	}
-	body, _ := json.Marshal(map[string]string{"message": "User registered successfully"})
-	return successfulResponse(string(body))
+
+// Handlers for bookings
+func createBooking(w http.ResponseWriter, r *http.Request) {
+	// Implementation for creating a booking
 }
-func loginHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var creds User
-	if err := json.Unmarshal([]byte(request.Body), &creds); err != nil {
-		return clientError(400, "Invalid request body")
-	}
-	result, err := db.GetItem(&dynamodb.GetItemInput{
-		TableName: aws.String(usersTableName),
-		Key:       map[string]*dynamodb.AttributeValue{"email": {S: aws.String(creds.Email)}},
+
+func getUserBookings(w http.ResponseWriter, r *http.Request) {
+	// Implementation for getting user bookings
+}
+
+// Handlers for user profiles
+func getUserProfile(w http.ResponseWriter, r *http.Request) {
+	// Implementation for getting user profile
+}
+
+// Authentication middleware
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Implementation for authentication
+		next.ServeHTTP(w, r)
 	})
-	if err != nil {
-		return serverError(err)
-	}
-	if result.Item == nil {
-		return clientError(401, "Invalid credentials")
-	}
-	var user User
-	if err = dynamodbattribute.UnmarshalMap(result.Item, &user); err != nil {
-		return serverError(err)
-	}
-	if err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(creds.Password)); err != nil {
-		return clientError(401, "Invalid credentials")
-	}
-	expirationTime := time.Now().Add(24 * time.Hour)
-	claims := &jwt.RegisteredClaims{Subject: user.Email, ExpiresAt: jwt.NewNumericDate(expirationTime)}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString([]byte("your_secret_key"))
-	if err != nil {
-		return serverError(err)
-	}
-	responseBody, _ := json.Marshal(map[string]string{"token": tokenString})
-	return successfulResponse(string(responseBody))
-}
-func addItemHandler(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	var item Item
-	if err := json.Unmarshal([]byte(request.Body), &item); err != nil {
-		return serverError(err)
-	}
-	item.ID = fmt.Sprintf("item_%d", time.Now().UnixNano())
-	av, err := dynamodbattribute.MarshalMap(item)
-	if err != nil {
-		return serverError(err)
-	}
-	_, err = db.PutItem(&dynamodb.PutItemInput{Item: av, TableName: aws.String(itemsTableName)})
-	if err != nil {
-		return serverError(err)
-	}
-	body, err := json.Marshal(item)
-	if err != nil {
-		return serverError(err)
-	}
-	return successfulResponse(string(body))
 }
 
 func main() {
-	lambda.Start(handler)
+	router := mux.NewRouter()
+
+	// CORS support
+	c := cors.New(cors.Options{
+		AllowedOrigins: []string{"*"},
+	})
+
+	// Register routes
+	router.HandleFunc("/items", getItems).Methods("GET")
+	router.HandleFunc("/items/{id}", getItemDetails).Methods("GET")
+	router.HandleFunc("/bookings", createBooking).Methods("POST")
+	router.HandleFunc("/user/bookings", getUserBookings).Methods("GET")
+	router.HandleFunc("/user/profile", getUserProfile).Methods("GET")
+
+	// Wrap router with middleware
+	handler := c.Handler(router)
+
+	http.ListenAndServe(":8080", authMiddleware(handler))
 }
