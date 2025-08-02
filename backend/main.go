@@ -57,8 +57,29 @@ type Booking struct {
 	EndDate     time.Time `json:"endDate"`
 	TotalPrice  float64   `json:"totalPrice"`
 	Status      string    `json:"status"` // "pending", "confirmed", "completed", "cancelled"
+	PaymentID   string    `json:"paymentId,omitempty"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+// Payment model for tracking transactions
+type Payment struct {
+	ID            string    `json:"id"`
+	BookingID     string    `json:"bookingId"`
+	Amount        float64   `json:"amount"`
+	Currency      string    `json:"currency"`
+	Status        string    `json:"status"` // "pending", "success", "failed", "refunded"
+	PaymentMethod string    `json:"paymentMethod"` // "razorpay", "card", "upi"
+	GatewayID     string    `json:"gatewayId,omitempty"` // Razorpay payment ID
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
+}
+
+// Calendar availability response
+type AvailabilityCalendar struct {
+	Date      string `json:"date"`
+	Available bool   `json:"available"`
+	Price     float64 `json:"price,omitempty"`
 }
 
 // JWT Claims structure
@@ -73,6 +94,7 @@ type Database struct {
 	Users    map[string]*User    `json:"users"`
 	Items    map[string]*Item    `json:"items"`
 	Bookings map[string]*Booking `json:"bookings"`
+	Payments map[string]*Payment `json:"payments"`
 	mutex    sync.RWMutex
 }
 
@@ -81,6 +103,7 @@ var (
 		Users:    make(map[string]*User),
 		Items:    make(map[string]*Item),
 		Bookings: make(map[string]*Booking),
+		Payments: make(map[string]*Payment),
 	}
 	jwtSecret = []byte("your-secret-key") // In production, use environment variable
 	counter   = 0
@@ -474,7 +497,196 @@ func addItem(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusCreated, item)
 }
 
-// Booking handlers
+// Booking availability helpers
+func checkBookingAvailability(itemID string, startDate, endDate time.Time) bool {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+	
+	for _, booking := range db.Bookings {
+		if booking.ItemID == itemID && booking.Status != "cancelled" {
+			// Check for date overlap
+			if (startDate.Before(booking.EndDate) && endDate.After(booking.StartDate)) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func getItemAvailabilityCalendar(itemID string, month int, year int) []AvailabilityCalendar {
+	if month == 0 {
+		month = int(time.Now().Month())
+	}
+	if year == 0 {
+		year = time.Now().Year()
+	}
+	
+	// Get the first and last day of the month
+	firstDay := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
+	lastDay := firstDay.AddDate(0, 1, -1)
+	
+	var calendar []AvailabilityCalendar
+	
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+	
+	item, exists := db.Items[itemID]
+	if !exists {
+		return calendar
+	}
+	
+	// Generate calendar for each day of the month
+	for d := firstDay; d.Before(lastDay.AddDate(0, 0, 1)); d = d.AddDate(0, 0, 1) {
+		nextDay := d.AddDate(0, 0, 1)
+		available := checkBookingAvailability(itemID, d, nextDay)
+		
+		calendar = append(calendar, AvailabilityCalendar{
+			Date:      d.Format("2006-01-02"),
+			Available: available,
+			Price:     item.DailyRate,
+		})
+	}
+	
+	return calendar
+}
+
+// Item CRUD operations
+func updateItem(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	itemID := vars["id"]
+	userID := r.Header.Get("X-User-ID")
+
+	if itemID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID is required")
+		return
+	}
+
+	var itemUpdates Item
+	if err := json.NewDecoder(r.Body).Decode(&itemUpdates); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	item, exists := db.Items[itemID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Item not found")
+		return
+	}
+
+	// Check if user is the owner
+	if item.OwnerID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only update your own items")
+		return
+	}
+
+	// Update only provided fields
+	if itemUpdates.Name != "" {
+		item.Name = itemUpdates.Name
+		item.Title = itemUpdates.Name // Backward compatibility
+	}
+	if itemUpdates.Description != "" {
+		item.Description = itemUpdates.Description
+	}
+	if itemUpdates.DailyRate > 0 {
+		item.DailyRate = itemUpdates.DailyRate
+		item.Price = int(itemUpdates.DailyRate) // Backward compatibility
+	}
+	if itemUpdates.ImageURL != "" {
+		item.ImageURL = itemUpdates.ImageURL
+	}
+
+	respondWithJSON(w, http.StatusOK, item)
+}
+
+func deleteItem(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	itemID := vars["id"]
+	userID := r.Header.Get("X-User-ID")
+
+	if itemID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID is required")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	item, exists := db.Items[itemID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Item not found")
+		return
+	}
+
+	// Check if user is the owner
+	if item.OwnerID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only delete your own items")
+		return
+	}
+
+	// Check if item has active bookings
+	for _, booking := range db.Bookings {
+		if booking.ItemID == itemID && (booking.Status == "pending" || booking.Status == "confirmed") {
+			respondWithError(w, http.StatusConflict, "Cannot delete item with active bookings")
+			return
+		}
+	}
+
+	delete(db.Items, itemID)
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Item deleted successfully"})
+}
+
+func getUserItems(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	userItems := make([]*Item, 0)
+	for _, item := range db.Items {
+		if item.OwnerID == userID {
+			userItems = append(userItems, item)
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, userItems)
+}
+
+func getAvailabilityCalendar(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	itemID := vars["id"]
+
+	if itemID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID is required")
+		return
+	}
+
+	// Parse query parameters for month and year
+	month := 0
+	year := 0
+	
+	if monthStr := r.URL.Query().Get("month"); monthStr != "" {
+		if m, err := strconv.Atoi(monthStr); err == nil {
+			month = m
+		}
+	}
+	
+	if yearStr := r.URL.Query().Get("year"); yearStr != "" {
+		if y, err := strconv.Atoi(yearStr); err == nil {
+			year = y
+		}
+	}
+
+	calendar := getItemAvailabilityCalendar(itemID, month, year)
+	respondWithJSON(w, http.StatusOK, calendar)
+}
+// Enhanced Booking handlers
 func createBooking(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
@@ -494,6 +706,21 @@ func createBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if booking.StartDate.IsZero() || booking.EndDate.IsZero() {
+		respondWithError(w, http.StatusBadRequest, "Start date and end date are required")
+		return
+	}
+
+	if booking.StartDate.After(booking.EndDate) || booking.StartDate.Equal(booking.EndDate) {
+		respondWithError(w, http.StatusBadRequest, "End date must be after start date")
+		return
+	}
+
+	if booking.StartDate.Before(time.Now().Truncate(24 * time.Hour)) {
+		respondWithError(w, http.StatusBadRequest, "Start date cannot be in the past")
+		return
+	}
+
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 
@@ -509,22 +736,24 @@ func createBooking(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set default dates if not provided
-	if booking.StartDate.IsZero() {
-		booking.StartDate = time.Now()
-	}
-	if booking.EndDate.IsZero() {
-		booking.EndDate = booking.StartDate.Add(24 * time.Hour)
+	// Check if dates are available (no conflicting bookings)
+	if !checkBookingAvailability(booking.ItemID, booking.StartDate, booking.EndDate) {
+		respondWithError(w, http.StatusConflict, "Item is not available for the selected dates")
+		return
 	}
 
-	// Calculate total price if not provided
-	if booking.TotalPrice == 0 {
-		days := int(booking.EndDate.Sub(booking.StartDate).Hours() / 24)
-		if days < 1 {
-			days = 1
-		}
-		booking.TotalPrice = float64(days) * item.DailyRate
+	// Prevent self-booking
+	if item.OwnerID == userID {
+		respondWithError(w, http.StatusBadRequest, "You cannot book your own item")
+		return
 	}
+
+	// Calculate total price
+	days := int(booking.EndDate.Sub(booking.StartDate).Hours() / 24)
+	if days < 1 {
+		days = 1
+	}
+	booking.TotalPrice = float64(days) * item.DailyRate
 
 	// Create new booking
 	booking.ID = generateID()
@@ -619,7 +848,222 @@ func updateBookingStatus(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, booking)
 }
 
-// Profile handlers
+// Payment handlers for Razorpay integration
+func createPaymentOrder(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	var request struct {
+		BookingID string `json:"bookingId"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	booking, exists := db.Bookings[request.BookingID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Booking not found")
+		return
+	}
+
+	if booking.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only pay for your own bookings")
+		return
+	}
+
+	if booking.Status != "pending" {
+		respondWithError(w, http.StatusConflict, "Booking is not in pending status")
+		return
+	}
+
+	// Create payment record
+	payment := &Payment{
+		ID:            generateID(),
+		BookingID:     booking.ID,
+		Amount:        booking.TotalPrice,
+		Currency:      "INR",
+		Status:        "pending",
+		PaymentMethod: "razorpay",
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
+	}
+
+	// In a real implementation, you would create Razorpay order here
+	// For now, we'll simulate it
+	payment.GatewayID = "order_" + generateID()
+
+	db.Payments[payment.ID] = payment
+	booking.PaymentID = payment.ID
+
+	// Return payment order details for frontend
+	response := map[string]interface{}{
+		"paymentId":    payment.ID,
+		"orderId":      payment.GatewayID,
+		"amount":       payment.Amount * 100, // Razorpay expects amount in paise
+		"currency":     payment.Currency,
+		"key":          "rzp_test_key", // Replace with actual Razorpay key
+		"name":         "BorrowHub",
+		"description":  "Booking payment for item",
+		"bookingId":    booking.ID,
+	}
+
+	respondWithJSON(w, http.StatusCreated, response)
+}
+
+func verifyPayment(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	var request struct {
+		PaymentID     string `json:"paymentId"`
+		RazorpayPaymentID string `json:"razorpayPaymentId"`
+		RazorpayOrderID   string `json:"razorpayOrderId"`
+		RazorpaySignature string `json:"razorpaySignature"`
+		Status        string `json:"status"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	payment, exists := db.Payments[request.PaymentID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Payment not found")
+		return
+	}
+
+	booking, exists := db.Bookings[payment.BookingID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Booking not found")
+		return
+	}
+
+	if booking.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only verify your own payments")
+		return
+	}
+
+	// In a real implementation, you would verify the signature with Razorpay
+	// For now, we'll simulate successful payment
+	if request.Status == "success" {
+		payment.Status = "success"
+		payment.GatewayID = request.RazorpayPaymentID
+		payment.UpdatedAt = time.Now()
+
+		booking.Status = "confirmed"
+		booking.UpdatedAt = time.Now()
+
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"status":  "success",
+			"booking": booking,
+			"payment": payment,
+		})
+	} else {
+		payment.Status = "failed"
+		payment.UpdatedAt = time.Now()
+
+		respondWithJSON(w, http.StatusOK, map[string]interface{}{
+			"status": "failed",
+			"message": "Payment verification failed",
+		})
+	}
+}
+
+func getPaymentHistory(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	userPayments := make([]*Payment, 0)
+	for _, payment := range db.Payments {
+		if booking, exists := db.Bookings[payment.BookingID]; exists && booking.UserID == userID {
+			userPayments = append(userPayments, payment)
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, userPayments)
+}
+// Image upload handler (basic implementation)
+func uploadImage(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	// Parse multipart form
+	err := r.ParseMultipartForm(10 << 20) // 10 MB max
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Failed to parse form data")
+		return
+	}
+
+	file, handler, err := r.FormFile("image")
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Failed to get image file")
+		return
+	}
+	defer file.Close()
+
+	// Basic file validation
+	if handler.Size > 10<<20 { // 10MB
+		respondWithError(w, http.StatusBadRequest, "File size too large (max 10MB)")
+		return
+	}
+
+	// Check file type
+	allowedTypes := map[string]bool{
+		"image/jpeg": true,
+		"image/jpg":  true,
+		"image/png":  true,
+		"image/gif":  true,
+	}
+
+	contentType := handler.Header.Get("Content-Type")
+	if !allowedTypes[contentType] {
+		respondWithError(w, http.StatusBadRequest, "Invalid file type. Only JPEG, PNG, and GIF allowed")
+		return
+	}
+
+	// In a real implementation, you would:
+	// 1. Save the file to cloud storage (AWS S3, Google Cloud Storage, etc.)
+	// 2. Generate a proper URL
+	// 3. Optimize/resize the image
+	
+	// For now, we'll simulate a successful upload
+	imageID := generateID()
+	imageURL := fmt.Sprintf("https://placehold.co/600x400/556cd6/white?text=Image+%s", imageID)
+
+	response := map[string]interface{}{
+		"imageId":  imageID,
+		"imageUrl": imageURL,
+		"message":  "Image uploaded successfully",
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
+}
+
+// Enhanced profile handlers
 func getUserProfile(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
@@ -640,7 +1084,37 @@ func getUserProfile(w http.ResponseWriter, r *http.Request) {
 	responseUser := *user
 	responseUser.Password = ""
 
-	respondWithJSON(w, http.StatusOK, responseUser)
+	// Add user statistics
+	userItems := 0
+	userBookings := 0
+	totalEarnings := 0.0
+
+	for _, item := range db.Items {
+		if item.OwnerID == userID {
+			userItems++
+		}
+	}
+
+	for _, booking := range db.Bookings {
+		if booking.UserID == userID {
+			userBookings++
+		}
+		// Calculate earnings if user is item owner
+		if item, exists := db.Items[booking.ItemID]; exists && item.OwnerID == userID && booking.Status == "completed" {
+			totalEarnings += booking.TotalPrice
+		}
+	}
+
+	response := map[string]interface{}{
+		"user": responseUser,
+		"stats": map[string]interface{}{
+			"itemsListed":    userItems,
+			"bookingsMade":   userBookings,
+			"totalEarnings":  totalEarnings,
+		},
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
 }
 
 func updateUserProfile(w http.ResponseWriter, r *http.Request) {
@@ -817,6 +1291,14 @@ func setupRouter() {
 	router.HandleFunc("/api/items", getItems).Methods("GET", "OPTIONS")
 	router.HandleFunc("/api/items/{id}", getItemDetails).Methods("GET", "OPTIONS")
 	router.HandleFunc("/api/items", addItem).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/items/{id}", updateItem).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/api/items/{id}", deleteItem).Methods("DELETE", "OPTIONS")
+
+	// User's own items
+	router.HandleFunc("/api/my-items", getUserItems).Methods("GET", "OPTIONS")
+
+	// Availability calendar
+	router.HandleFunc("/api/items/{id}/availability", getAvailabilityCalendar).Methods("GET", "OPTIONS")
 
 	// Booking routes (with /api prefix to match frontend)
 	router.HandleFunc("/api/bookings", createBooking).Methods("POST", "OPTIONS")
@@ -824,6 +1306,14 @@ func setupRouter() {
 	router.HandleFunc("/bookings", getUserBookings).Methods("GET", "OPTIONS") // Alternative endpoint
 	router.HandleFunc("/api/bookings/{id}", updateBookingStatus).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/bookings/{id}", updateBookingStatus).Methods("PUT", "OPTIONS") // Alternative endpoint
+
+	// Payment routes for Razorpay
+	router.HandleFunc("/api/payments/create-order", createPaymentOrder).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/payments/verify", verifyPayment).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/payments/history", getPaymentHistory).Methods("GET", "OPTIONS")
+
+	// Image upload
+	router.HandleFunc("/api/upload/image", uploadImage).Methods("POST", "OPTIONS")
 
 	// Profile routes (support both patterns)
 	router.HandleFunc("/api/profile", getUserProfile).Methods("GET", "OPTIONS")
