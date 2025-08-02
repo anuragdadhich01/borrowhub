@@ -22,7 +22,8 @@ import {
   Search,
   FavoriteBorder,
   NotificationsNone,
-  Message
+  Message,
+  AdminPanelSettings
 } from '@mui/icons-material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
@@ -114,6 +115,15 @@ const Navbar = () => {
         <Message sx={{ mr: 2, color: 'text.secondary' }} />
         <Typography variant="body2">Messages</Typography>
       </MenuItem>
+      {user?.email === 'admin@borrowhub.com' && (
+        <>
+          <Divider />
+          <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/admin'); }} sx={{ py: 1.5 }}>
+            <AdminPanelSettings sx={{ mr: 2, color: 'primary.main' }} />
+            <Typography variant="body2" color="primary.main">Admin Panel</Typography>
+          </MenuItem>
+        </>
+      )}
       <Divider />
       <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
         <ExitToApp sx={{ mr: 2, color: 'error.main' }} />

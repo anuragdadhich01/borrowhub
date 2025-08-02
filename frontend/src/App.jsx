@@ -13,6 +13,7 @@ import ProfilePage from './pages/ProfilePage';
 import BookingsPage from './pages/BookingsPage';
 import ItemManagementPage from './pages/ItemManagementPage';
 import MessagesPage from './pages/MessagesPage';
+import AdminPage from './pages/AdminPage';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Box, Container } from '@mui/material';
@@ -96,6 +97,14 @@ function App() {
                 element={
                   <PrivateRoute>
                     <MessagesPage />
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/admin"
+                element={
+                  <PrivateRoute>
+                    <AdminPage />
                   </PrivateRoute>
                 }
               />

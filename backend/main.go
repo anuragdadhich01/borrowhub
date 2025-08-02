@@ -32,6 +32,9 @@ type Item struct {
 	ImageURL    string    `json:"imageUrl"`
 	OwnerID     string    `json:"ownerId"`
 	Available   bool      `json:"available"`
+	Status      string    `json:"status"`      // "pending", "approved", "rejected"
+	Category    string    `json:"category"`
+	Location    string    `json:"location"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
@@ -45,6 +48,8 @@ type User struct {
 	LastName  string    `json:"lastName"`
 	Phone     string    `json:"phone"`
 	Address   string    `json:"address"`
+	Role      string    `json:"role"`      // "user", "admin"
+	Status    string    `json:"status"`    // "active", "suspended", "banned"
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -103,6 +108,17 @@ type Message struct {
 	CreatedAt  time.Time `json:"createdAt"`
 }
 
+// Admin Activity Log for tracking admin actions
+type AdminLog struct {
+	ID          string    `json:"id"`
+	AdminUserID string    `json:"adminUserId"`
+	Action      string    `json:"action"`     // "user_suspend", "item_approve", "item_reject", etc.
+	TargetType  string    `json:"targetType"` // "user", "item", "booking", "payment"
+	TargetID    string    `json:"targetId"`
+	Details     string    `json:"details"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // Calendar availability response
 type AvailabilityCalendar struct {
 	Date      string `json:"date"`
@@ -119,23 +135,25 @@ type Claims struct {
 
 // In-memory database
 type Database struct {
-	Users    map[string]*User    `json:"users"`
-	Items    map[string]*Item    `json:"items"`
-	Bookings map[string]*Booking `json:"bookings"`
-	Payments map[string]*Payment `json:"payments"`
-	Ratings  map[string]*Rating  `json:"ratings"`
-	Messages map[string]*Message `json:"messages"`
-	mutex    sync.RWMutex
+	Users     map[string]*User     `json:"users"`
+	Items     map[string]*Item     `json:"items"`
+	Bookings  map[string]*Booking  `json:"bookings"`
+	Payments  map[string]*Payment  `json:"payments"`
+	Ratings   map[string]*Rating   `json:"ratings"`
+	Messages  map[string]*Message  `json:"messages"`
+	AdminLogs map[string]*AdminLog `json:"adminLogs"`
+	mutex     sync.RWMutex
 }
 
 var (
 	db        = &Database{
-		Users:    make(map[string]*User),
-		Items:    make(map[string]*Item),
-		Bookings: make(map[string]*Booking),
-		Payments: make(map[string]*Payment),
-		Ratings:  make(map[string]*Rating),
-		Messages: make(map[string]*Message),
+		Users:     make(map[string]*User),
+		Items:     make(map[string]*Item),
+		Bookings:  make(map[string]*Booking),
+		Payments:  make(map[string]*Payment),
+		Ratings:   make(map[string]*Rating),
+		Messages:  make(map[string]*Message),
+		AdminLogs: make(map[string]*AdminLog),
 	}
 	jwtSecret = []byte("your-secret-key") // In production, use environment variable
 	counter   = 0
@@ -165,6 +183,8 @@ func initSampleData() {
 		LastName:  "Doe",
 		Phone:     "1234567890",
 		Address:   "123 Main St",
+		Role:      "user",
+		Status:    "active",
 		CreatedAt: time.Now(),
 	}
 	
@@ -177,11 +197,29 @@ func initSampleData() {
 		LastName:  "Smith",
 		Phone:     "0987654321",
 		Address:   "456 Oak Ave",
+		Role:      "user",
+		Status:    "active",
+		CreatedAt: time.Now(),
+	}
+
+	// Create admin user
+	admin := &User{
+		ID:        generateID(),
+		Username:  "admin",
+		Email:     "admin@borrowhub.com",
+		Password:  string(hashedPassword),
+		FirstName: "Admin",
+		LastName:  "User",
+		Phone:     "1111111111",
+		Address:   "Admin Office",
+		Role:      "admin",
+		Status:    "active",
 		CreatedAt: time.Now(),
 	}
 
 	db.Users[user1.ID] = user1
 	db.Users[user2.ID] = user2
+	db.Users[admin.ID] = admin
 
 	// Create sample items
 	item1 := &Item{
@@ -194,6 +232,9 @@ func initSampleData() {
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Camera+DSLR",
 		OwnerID:     user1.ID,
 		Available:   true,
+		Status:      "approved",
+		Category:    "Electronics",
+		Location:    "Mumbai",
 		CreatedAt:   time.Now(),
 	}
 
@@ -207,6 +248,9 @@ func initSampleData() {
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Mountain+Bike",
 		OwnerID:     user2.ID,
 		Available:   true,
+		Status:      "approved",
+		Category:    "Sports",
+		Location:    "Delhi",
 		CreatedAt:   time.Now(),
 	}
 
@@ -220,6 +264,9 @@ func initSampleData() {
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Gaming+Console",
 		OwnerID:     user1.ID,
 		Available:   true,
+		Status:      "approved",
+		Category:    "Electronics",
+		Location:    "Mumbai",
 		CreatedAt:   time.Now(),
 	}
 
@@ -1388,6 +1435,312 @@ func getUserConversations(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, conversations)
 }
 
+// Admin middleware to check if user is admin
+func adminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID := r.Header.Get("X-User-ID")
+		if userID == "" {
+			respondWithError(w, http.StatusUnauthorized, "User authentication required")
+			return
+		}
+
+		db.mutex.RLock()
+		user, exists := db.Users[userID]
+		db.mutex.RUnlock()
+
+		if !exists {
+			respondWithError(w, http.StatusUnauthorized, "User not found")
+			return
+		}
+
+		if user.Role != "admin" {
+			respondWithError(w, http.StatusForbidden, "Admin access required")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Helper function to create admin log
+func createAdminLog(adminUserID, action, targetType, targetID, details string) {
+	log := &AdminLog{
+		ID:          generateID(),
+		AdminUserID: adminUserID,
+		Action:      action,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		Details:     details,
+		CreatedAt:   time.Now(),
+	}
+	db.AdminLogs[log.ID] = log
+}
+
+// Admin Dashboard - Get statistics
+func getAdminDashboard(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	totalUsers := len(db.Users)
+	totalItems := len(db.Items)
+	totalBookings := len(db.Bookings)
+	totalRevenue := 0.0
+
+	// Calculate statistics
+	activeUsers := 0
+	pendingItems := 0
+	activeBookings := 0
+
+	for _, user := range db.Users {
+		if user.Status == "active" {
+			activeUsers++
+		}
+	}
+
+	for _, item := range db.Items {
+		if item.Status == "pending" {
+			pendingItems++
+		}
+	}
+
+	for _, booking := range db.Bookings {
+		if booking.Status == "confirmed" || booking.Status == "completed" {
+			activeBookings++
+			if booking.Status == "completed" {
+				totalRevenue += booking.TotalPrice
+			}
+		}
+	}
+
+	stats := map[string]interface{}{
+		"totalUsers":     totalUsers,
+		"activeUsers":    activeUsers,
+		"totalItems":     totalItems,
+		"pendingItems":   pendingItems,
+		"totalBookings":  totalBookings,
+		"activeBookings": activeBookings,
+		"totalRevenue":   totalRevenue,
+	}
+
+	respondWithJSON(w, http.StatusOK, stats)
+}
+
+// Admin User Management
+func getAdminUsers(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	users := make([]*User, 0, len(db.Users))
+	for _, user := range db.Users {
+		responseUser := *user
+		responseUser.Password = "" // Remove password
+		users = append(users, &responseUser)
+	}
+
+	respondWithJSON(w, http.StatusOK, users)
+}
+
+func updateUserStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["id"]
+	adminUserID := r.Header.Get("X-User-ID")
+
+	if userID == "" {
+		respondWithError(w, http.StatusBadRequest, "User ID is required")
+		return
+	}
+
+	var request struct {
+		Status string `json:"status"`
+		Reason string `json:"reason,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	validStatuses := []string{"active", "suspended", "banned"}
+	isValidStatus := false
+	for _, status := range validStatuses {
+		if request.Status == status {
+			isValidStatus = true
+			break
+		}
+	}
+
+	if !isValidStatus {
+		respondWithError(w, http.StatusBadRequest, "Invalid status")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	user, exists := db.Users[userID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	oldStatus := user.Status
+	user.Status = request.Status
+
+	// Create admin log
+	details := fmt.Sprintf("Status changed from %s to %s", oldStatus, request.Status)
+	if request.Reason != "" {
+		details += fmt.Sprintf(" - Reason: %s", request.Reason)
+	}
+	createAdminLog(adminUserID, "user_status_update", "user", userID, details)
+
+	responseUser := *user
+	responseUser.Password = ""
+
+	respondWithJSON(w, http.StatusOK, responseUser)
+}
+
+// Admin Item Management
+func getAdminItems(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Parse query parameters
+	status := r.URL.Query().Get("status")
+
+	items := make([]*Item, 0)
+	for _, item := range db.Items {
+		if status == "" || item.Status == status {
+			items = append(items, item)
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, items)
+}
+
+func updateItemStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	itemID := vars["id"]
+	adminUserID := r.Header.Get("X-User-ID")
+
+	if itemID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID is required")
+		return
+	}
+
+	var request struct {
+		Status string `json:"status"`
+		Reason string `json:"reason,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	validStatuses := []string{"pending", "approved", "rejected"}
+	isValidStatus := false
+	for _, status := range validStatuses {
+		if request.Status == status {
+			isValidStatus = true
+			break
+		}
+	}
+
+	if !isValidStatus {
+		respondWithError(w, http.StatusBadRequest, "Invalid status")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	item, exists := db.Items[itemID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Item not found")
+		return
+	}
+
+	oldStatus := item.Status
+	item.Status = request.Status
+
+	// If rejected, make item unavailable
+	if request.Status == "rejected" {
+		item.Available = false
+	}
+
+	// Create admin log
+	details := fmt.Sprintf("Status changed from %s to %s", oldStatus, request.Status)
+	if request.Reason != "" {
+		details += fmt.Sprintf(" - Reason: %s", request.Reason)
+	}
+	createAdminLog(adminUserID, "item_status_update", "item", itemID, details)
+
+	respondWithJSON(w, http.StatusOK, item)
+}
+
+// Admin Booking Management
+func getAdminBookings(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Parse query parameters
+	status := r.URL.Query().Get("status")
+
+	bookings := make([]*Booking, 0)
+	for _, booking := range db.Bookings {
+		if status == "" || booking.Status == status {
+			bookings = append(bookings, booking)
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, bookings)
+}
+
+// Admin Analytics
+func getAdminAnalytics(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Revenue analytics
+	revenueByMonth := make(map[string]float64)
+	bookingsByStatus := make(map[string]int)
+	usersByMonth := make(map[string]int)
+
+	for _, booking := range db.Bookings {
+		month := booking.CreatedAt.Format("2006-01")
+		if booking.Status == "completed" {
+			revenueByMonth[month] += booking.TotalPrice
+		}
+		bookingsByStatus[booking.Status]++
+	}
+
+	for _, user := range db.Users {
+		month := user.CreatedAt.Format("2006-01")
+		usersByMonth[month]++
+	}
+
+	analytics := map[string]interface{}{
+		"revenueByMonth":   revenueByMonth,
+		"bookingsByStatus": bookingsByStatus,
+		"usersByMonth":     usersByMonth,
+	}
+
+	respondWithJSON(w, http.StatusOK, analytics)
+}
+
+// Admin Logs
+func getAdminLogs(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	logs := make([]*AdminLog, 0, len(db.AdminLogs))
+	for _, log := range db.AdminLogs {
+		logs = append(logs, log)
+	}
+
+	respondWithJSON(w, http.StatusOK, logs)
+}
+
 // Image upload handler (basic implementation)
 func uploadImage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
@@ -1709,6 +2062,19 @@ func setupRouter() {
 	router.HandleFunc("/api/messages/conversation/{userId}", getConversation).Methods("GET", "OPTIONS")
 	router.HandleFunc("/api/messages/{id}/read", markMessageAsRead).Methods("PUT", "OPTIONS")
 
+	// Admin routes (protected by admin middleware)
+	adminRouter := router.PathPrefix("/api/admin").Subrouter()
+	adminRouter.Use(adminMiddleware)
+	
+	adminRouter.HandleFunc("/dashboard", getAdminDashboard).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/users", getAdminUsers).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/users/{id}/status", updateUserStatus).Methods("PUT", "OPTIONS")
+	adminRouter.HandleFunc("/items", getAdminItems).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/items/{id}/status", updateItemStatus).Methods("PUT", "OPTIONS")
+	adminRouter.HandleFunc("/bookings", getAdminBookings).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/analytics", getAdminAnalytics).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/logs", getAdminLogs).Methods("GET", "OPTIONS")
+
 	// Image upload
 	router.HandleFunc("/api/upload/image", uploadImage).Methods("POST", "OPTIONS")
 
@@ -1752,6 +2118,7 @@ func main() {
 		fmt.Println("Sample users:")
 		fmt.Println("- john@example.com / password123")
 		fmt.Println("- jane@example.com / password123")
+		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
 		
 		lambda.Start(lambdaHandler)
 	} else {
@@ -1760,6 +2127,7 @@ func main() {
 		fmt.Println("Sample users:")
 		fmt.Println("- john@example.com / password123")
 		fmt.Println("- jane@example.com / password123")
+		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
 		
 		log.Fatal(http.ListenAndServe(":8080", httpHandler))
 	}
