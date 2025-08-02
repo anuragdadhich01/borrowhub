@@ -36,4 +36,5 @@ yarn-error.log*
 Thumbs.db
 
 # Add this line to your .gitignore file
-backend/config/default.json
+backend/config/default.json# Development environment file
+.env

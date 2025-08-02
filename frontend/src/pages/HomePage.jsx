@@ -12,14 +12,16 @@ import {
     Stack,
     Chip,
     Button,
-    Paper
+    Paper,
+    AlertTitle
 } from '@mui/material';
-import { TrendingUp, Category, Star, ShoppingBag } from '@mui/icons-material';
+import { TrendingUp, Category, Star, ShoppingBag, Refresh, Warning } from '@mui/icons-material';
 import HeroSection from '../components/HeroSection';
 import ModernItemCard from '../components/ModernItemCard';
 import SearchAndFilter from '../components/SearchAndFilter';
 import TestimonialsSection from '../components/TestimonialsSection';
 import Footer from '../components/Footer';
+import NetworkStatus from '../components/NetworkStatus';
 
 const HomePage = () => {
     const [items, setItems] = useState([]);
@@ -28,6 +30,8 @@ const HomePage = () => {
     const [error, setError] = useState(null);
     const [wishlistedItems, setWishlistedItems] = useState(new Set());
     const [showFilters, setShowFilters] = useState(false);
+    const [isUsingMockData, setIsUsingMockData] = useState(false);
+    const [retryCount, setRetryCount] = useState(0);
 
     // Mock data for when API is not available
     const mockItems = [
@@ -82,26 +86,61 @@ const HomePage = () => {
     ];
 
     useEffect(() => {
-        const fetchItems = async () => {
-            try {
-                setLoading(true);
-                const res = await axios.get('/api/items');
-                setItems(res.data || []);
-                setFilteredItems(res.data || []);
-                setError(null);
-            } catch (err) {
-                console.error("Error fetching items:", err);
-                // Use mock data when API fails
-                setItems(mockItems);
-                setFilteredItems(mockItems);
-                setError(null);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchItems();
     }, []);
+
+    const fetchItems = async (showLoadingState = true) => {
+        try {
+            if (showLoadingState) {
+                setLoading(true);
+            }
+            setError(null);
+            
+            const res = await axios.get('/api/items');
+            setItems(res.data || []);
+            setFilteredItems(res.data || []);
+            setIsUsingMockData(false);
+            setRetryCount(0);
+            
+        } catch (err) {
+            console.error("Error fetching items:", err);
+            
+            // Use mock data when API fails
+            setItems(mockItems);
+            setFilteredItems(mockItems);
+            setIsUsingMockData(true);
+            
+            // Set user-friendly error message
+            if (err.isNetworkError) {
+                setError({
+                    message: err.userMessage || 'Unable to connect to the server. Please check your internet connection.',
+                    type: 'network',
+                    canRetry: true
+                });
+            } else if (err.isServerError) {
+                setError({
+                    message: err.userMessage || 'Server is temporarily unavailable. Please try again later.',
+                    type: 'server',
+                    canRetry: true
+                });
+            } else {
+                setError({
+                    message: err.userMessage || 'Unable to load items. Please try again.',
+                    type: 'general',
+                    canRetry: true
+                });
+            }
+        } finally {
+            if (showLoadingState) {
+                setLoading(false);
+            }
+        }
+    };
+
+    const handleRetry = () => {
+        setRetryCount(prev => prev + 1);
+        fetchItems(true);
+    };
 
     const handleWishlistToggle = (itemId) => {
         setWishlistedItems(prev => {
@@ -189,6 +228,7 @@ const HomePage = () => {
     if (loading) {
         return (
             <>
+                <NetworkStatus onRetry={() => fetchItems(false)} />
                 <HeroSection />
                 <SearchAndFilter 
                     onSearch={handleSearch}
@@ -197,29 +237,12 @@ const HomePage = () => {
                     onToggle={() => setShowFilters(!showFilters)}
                 />
                 <Container maxWidth="xl" sx={{ py: 8 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mt: 4 }}>
                         <CircularProgress size={60} />
+                        <Typography variant="body1" sx={{ mt: 2 }} color="text.secondary">
+                            Loading available items...
+                        </Typography>
                     </Box>
-                </Container>
-                <Footer />
-            </>
-        );
-    }
-
-    if (error) {
-        return (
-            <>
-                <HeroSection />
-                <SearchAndFilter 
-                    onSearch={handleSearch}
-                    onFilter={handleFilter}
-                    isOpen={showFilters}
-                    onToggle={() => setShowFilters(!showFilters)}
-                />
-                <Container maxWidth="xl" sx={{ py: 8 }}>
-                    <Alert severity="error" sx={{ mt: 4 }}>
-                        {error}
-                    </Alert>
                 </Container>
                 <Footer />
             </>
@@ -228,6 +251,63 @@ const HomePage = () => {
 
     return (
         <Box sx={{ width: '100%' }}>
+            {/* Network Status Monitor */}
+            <NetworkStatus onRetry={() => fetchItems(false)} />
+            
+            {/* Error Alert for API issues */}
+            {error && (
+                <Container maxWidth="xl" sx={{ pt: 2 }}>
+                    <Alert 
+                        severity={error.type === 'network' ? 'error' : 'warning'} 
+                        sx={{ mb: 2 }}
+                        icon={<Warning />}
+                        action={
+                            error.canRetry && (
+                                <Button
+                                    color="inherit"
+                                    size="small"
+                                    onClick={handleRetry}
+                                    startIcon={<Refresh />}
+                                >
+                                    Retry
+                                </Button>
+                            )
+                        }
+                    >
+                        <AlertTitle>
+                            {error.type === 'network' ? 'Connection Problem' : 'Service Issue'}
+                        </AlertTitle>
+                        {error.message}
+                        {isUsingMockData && (
+                            <Box sx={{ mt: 1 }}>
+                                <Typography variant="body2">
+                                    Showing sample items while the service is unavailable.
+                                </Typography>
+                            </Box>
+                        )}
+                    </Alert>
+                </Container>
+            )}
+
+            {/* Mock Data Notice */}
+            {isUsingMockData && !error && (
+                <Container maxWidth="xl" sx={{ pt: 2 }}>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        <AlertTitle>Demo Mode</AlertTitle>
+                        Currently showing sample items. Some features may be limited.
+                        <Button
+                            color="inherit"
+                            size="small"
+                            onClick={handleRetry}
+                            startIcon={<Refresh />}
+                            sx={{ ml: 2 }}
+                        >
+                            Try to connect
+                        </Button>
+                    </Alert>
+                </Container>
+            )}
+
             {/* Hero Section */}
             <HeroSection />
 
