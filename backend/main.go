@@ -288,12 +288,13 @@ func register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear password before returning user data
-	user.Password = ""
+	// Create a response user without password (don't modify the stored user)
+	responseUser := user
+	responseUser.Password = ""
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
 		"token": token,
-		"user":  user,
+		"user":  responseUser,
 	})
 }
 
