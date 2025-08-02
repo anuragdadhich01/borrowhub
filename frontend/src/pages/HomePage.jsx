@@ -1,7 +1,7 @@
 // frontend/src/pages/HomePage.jsx
 
 import React, { useState, useEffect } from 'react';
-import axios from '../api/axios';
+import axios, { switchToLocalhost, getApiStatus } from '../api/axios';
 import {
     Container,
     Grid,
@@ -32,6 +32,7 @@ const HomePage = () => {
     const [showFilters, setShowFilters] = useState(false);
     const [isUsingMockData, setIsUsingMockData] = useState(false);
     const [retryCount, setRetryCount] = useState(0);
+    const [apiStatus, setApiStatus] = useState(null);
 
     // Mock data for when API is not available
     const mockItems = [
@@ -87,6 +88,8 @@ const HomePage = () => {
 
     useEffect(() => {
         fetchItems();
+        // Update API status
+        setApiStatus(getApiStatus());
     }, []);
 
     const fetchItems = async (showLoadingState = true) => {
@@ -138,6 +141,14 @@ const HomePage = () => {
     };
 
     const handleRetry = () => {
+        setRetryCount(prev => prev + 1);
+        setApiStatus(getApiStatus());
+        fetchItems(true);
+    };
+
+    const handleSwitchToLocalhost = () => {
+        switchToLocalhost();
+        setApiStatus(getApiStatus());
         setRetryCount(prev => prev + 1);
         fetchItems(true);
     };
@@ -254,6 +265,19 @@ const HomePage = () => {
             {/* Network Status Monitor */}
             <NetworkStatus onRetry={() => fetchItems(false)} />
             
+            {/* API Status Indicator */}
+            {apiStatus?.usingFallback && (
+                <Container maxWidth="xl" sx={{ pt: 2 }}>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        <AlertTitle>Using Local Backend</AlertTitle>
+                        Currently connected to localhost backend due to AWS service outage.
+                        <Typography variant="body2" sx={{ mt: 1 }}>
+                            API Endpoint: {apiStatus.baseURL}
+                        </Typography>
+                    </Alert>
+                </Container>
+            )}
+
             {/* Error Alert for API issues */}
             {error && (
                 <Container maxWidth="xl" sx={{ pt: 2 }}>
@@ -262,16 +286,28 @@ const HomePage = () => {
                         sx={{ mb: 2 }}
                         icon={<Warning />}
                         action={
-                            error.canRetry && (
-                                <Button
-                                    color="inherit"
-                                    size="small"
-                                    onClick={handleRetry}
-                                    startIcon={<Refresh />}
-                                >
-                                    Retry
-                                </Button>
-                            )
+                            <Stack direction="row" spacing={1}>
+                                {error.canRetry && (
+                                    <Button
+                                        color="inherit"
+                                        size="small"
+                                        onClick={handleRetry}
+                                        startIcon={<Refresh />}
+                                    >
+                                        Retry
+                                    </Button>
+                                )}
+                                {error.type === 'network' && !apiStatus?.usingFallback && (
+                                    <Button
+                                        color="inherit"
+                                        size="small"
+                                        onClick={handleSwitchToLocalhost}
+                                        variant="outlined"
+                                    >
+                                        Use Local Backend
+                                    </Button>
+                                )}
+                            </Stack>
                         }
                     >
                         <AlertTitle>
