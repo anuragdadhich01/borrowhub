@@ -15,7 +15,6 @@ import {
 } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import AuthContext from '../context/AuthContext';
 
 const LoginPage = () => {
@@ -23,40 +22,38 @@ const LoginPage = () => {
     email: '',
     password: '',
   });
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [localError, setLocalError] = useState('');
   const navigate = useNavigate();
-  const { dispatch } = useContext(AuthContext);
-
- // frontend/src/pages/LoginPage.jsx
-
-  // REPLACE THIS LINE
-  const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/login';
+  const { login, loading, isAuthenticated } = useContext(AuthContext);
 
   const { email, password } = formData;
 
-  const onChange = (e) =>
+  React.useEffect(() => {
+    // Redirect if already authenticated
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
+
+  const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    // Clear local error when user starts typing
+    if (localError) {
+      setLocalError('');
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const res = await axios.post(API_ENDPOINT, formData);
-
-      const data = JSON.parse(res.data.body);
-      const token = data.token;
-
-      dispatch({ type: 'LOGIN_SUCCESS', payload: { token } });
-
-      navigate('/');
-    } catch (err) {
-      const errorMessage = err.response?.data?.body || 'Invalid credentials. Please try again.';
-      setError(errorMessage);
-      console.error(err.response || err);
-    } finally {
-      setLoading(false);
+    setLocalError('');
+    
+    if (login) {
+      const result = await login(email, password);
+      if (result.success) {
+        navigate('/');
+      } else {
+        setLocalError(result.error || 'Login failed');
+      }
     }
   };
 
@@ -101,7 +98,7 @@ const LoginPage = () => {
             value={password}
             onChange={onChange}
           />
-          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
+          {localError && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{localError}</Alert>}
           <Button
             type="submit"
             fullWidth

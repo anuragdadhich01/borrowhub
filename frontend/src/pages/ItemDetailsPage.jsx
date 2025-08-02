@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import axios from 'axios'; // Only one import now
+import axios from 'axios';
 import AuthContext from '../context/AuthContext';
 import './ItemDetailsPage.css';
 
@@ -10,6 +10,7 @@ const ItemDetailsPage = () => {
   const { isAuthenticated } = useContext(AuthContext);
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     const fetchItem = async () => {
@@ -19,6 +20,7 @@ const ItemDetailsPage = () => {
         setLoading(false);
       } catch (err) {
         console.error(err);
+        setError('Failed to load item details');
         setLoading(false);
       }
     };
@@ -36,26 +38,31 @@ const ItemDetailsPage = () => {
     // This is a simplified booking flow.
     // In a real app, you would have a date picker.
     const bookingDetails = {
-      itemId: item._id,
-      startDate: new Date(),
-      endDate: new Date(new Date().setDate(new Date().getDate() + 1)), // Example: 1 day rental
+      itemId: item.id, // Use 'id' instead of '_id'
+      startDate: new Date().toISOString(),
+      endDate: new Date(new Date().setDate(new Date().getDate() + 1)).toISOString(), // Example: 1 day rental
       totalPrice: item.dailyRate,
     };
 
     try {
       // 1. Create a pending booking in our database
       const res = await axios.post('/api/bookings', bookingDetails);
-      const bookingId = res.data._id;
+      const bookingId = res.data.id; // Use 'id' instead of '_id'
 
       // 2. Navigate to the Payment Page with the new booking ID
       navigate(`/pay/${bookingId}`, { state: { bookingId } });
     } catch (err) {
       console.error('Failed to create booking', err);
+      alert('Failed to create booking. Please try again.');
     }
   };
 
   if (loading) {
     return <div>Loading...</div>;
+  }
+
+  if (error) {
+    return <div>Error: {error}</div>;
   }
 
   if (!item) {

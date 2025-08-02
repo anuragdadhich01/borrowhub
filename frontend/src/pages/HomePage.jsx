@@ -21,16 +21,12 @@ const HomePage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    // Hardcoded correct URL
-   const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/items';
-
     useEffect(() => {
         const fetchItems = async () => {
             try {
                 setLoading(true);
-                const res = await axios.get(API_ENDPOINT);
-                const parsedItems = res.data;
-                setItems(parsedItems || []);
+                const res = await axios.get('/api/items');
+                setItems(res.data || []);
                 setError(null);
             } catch (err) {
                 console.error("Error fetching items:", err);
@@ -45,7 +41,7 @@ const HomePage = () => {
         };
 
         fetchItems();
-    }, [API_ENDPOINT]);
+    }, []);
 
     if (loading) {
         return (

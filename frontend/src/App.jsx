@@ -9,6 +9,8 @@ import LoginPage from './pages/LoginPage';
 import AddItemPage from './pages/AddItemPage';
 import ItemDetailsPage from './pages/ItemDetailsPage';
 import PaymentPage from './pages/PaymentPage';
+import ProfilePage from './pages/ProfilePage';
+import BookingsPage from './pages/BookingsPage';
 import PrivateRoute from './components/PrivateRoute';
 import { Container } from '@mui/material';
 
@@ -35,6 +37,22 @@ function App() {
             element={
               <PrivateRoute>
                 <PaymentPage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/profile"
+            element={
+              <PrivateRoute>
+                <ProfilePage />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/bookings"
+            element={
+              <PrivateRoute>
+                <BookingsPage />
               </PrivateRoute>
             }
           />

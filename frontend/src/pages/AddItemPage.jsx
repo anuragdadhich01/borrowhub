@@ -1,6 +1,6 @@
 // frontend/src/pages/AddItemPage.jsx
 
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Container,
   Box,
@@ -15,6 +15,7 @@ import {
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
+import AuthContext from '../context/AuthContext';
 
 const AddItemPage = () => {
   const [formData, setFormData] = useState({
@@ -26,11 +27,16 @@ const AddItemPage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  // frontend/src/pages/AddItemPage.jsx
-
-  // REPLACE THIS LINE
- const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/items';
+  const { isAuthenticated } = useContext(AuthContext);
+  
   const { name, description, dailyRate, imageUrl } = formData;
+
+  // Redirect if not authenticated
+  React.useEffect(() => {
+    if (!isAuthenticated) {
+      navigate('/login');
+    }
+  }, [isAuthenticated, navigate]);
 
   const onChange = (e) =>
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -44,11 +50,11 @@ const AddItemPage = () => {
         ...formData,
         dailyRate: parseFloat(dailyRate) // Convert rate to a number
       };
-      await axios.post(API_ENDPOINT, itemData);
+      await axios.post('/api/items', itemData);
       alert('Item listed successfully!');
       navigate('/');
     } catch (err) {
-      setError('Failed to list item. Please try again.');
+      setError(err.response?.data?.error || 'Failed to list item. Please try again.');
       console.error(err);
     } finally {
       setLoading(false);

@@ -1,6 +1,6 @@
 // frontend/src/pages/RegisterPage.jsx
 
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Container,
   Box,
@@ -15,47 +15,49 @@ import {
 } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import axios from 'axios';
+import AuthContext from '../context/AuthContext';
 
 const RegisterPage = () => {
   const [formData, setFormData] = useState({
-    name: '',
+    firstName: '',
+    lastName: '',
     email: '',
     password: '',
+    phone: '',
+    address: '',
   });
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [localError, setLocalError] = useState('');
   const navigate = useNavigate();
+  const { register, loading, isAuthenticated } = useContext(AuthContext);
 
-  // FIX: Using the correct, single path for the register endpoint
- const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/register';
+  const { firstName, lastName, email, password, phone, address } = formData;
 
-  const { name, email, password } = formData;
+  React.useEffect(() => {
+    // Redirect if already authenticated
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
 
-  const onChange = (e) =>
+  const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    // Clear local error when user starts typing
+    if (localError) {
+      setLocalError('');
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setSuccess('');
-    setLoading(true);
-    try {
-      const res = await axios.post(API_ENDPOINT, formData);
-      
-      const data = JSON.parse(res.data.body);
-      
-      setSuccess(data.message || 'Registration successful! Redirecting to login...');
-      setTimeout(() => {
-        navigate('/login');
-      }, 2000);
-    } catch (err) {
-      const errorMessage = err.response?.data?.body || 'An error occurred. Please try again.';
-      setError(errorMessage);
-      console.error(err.response || err);
-    } finally {
-      setLoading(false);
+    setLocalError('');
+    
+    if (register) {
+      const result = await register(formData);
+      if (result.success) {
+        navigate('/');
+      } else {
+        setLocalError(result.error || 'Registration failed');
+      }
     }
   };
 
@@ -77,16 +79,28 @@ const RegisterPage = () => {
         </Typography>
         <Box component="form" noValidate onSubmit={onSubmit} sx={{ mt: 3 }}>
           <Grid container spacing={2}>
-            <Grid item xs={12}>
+            <Grid item xs={12} sm={6}>
               <TextField
-                autoComplete="name"
-                name="name"
+                autoComplete="given-name"
+                name="firstName"
                 required
                 fullWidth
-                id="name"
-                label="Full Name"
+                id="firstName"
+                label="First Name"
                 autoFocus
-                value={name}
+                value={firstName}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12} sm={6}>
+              <TextField
+                required
+                fullWidth
+                id="lastName"
+                label="Last Name"
+                name="lastName"
+                autoComplete="family-name"
+                value={lastName}
                 onChange={onChange}
               />
             </Grid>
@@ -115,9 +129,30 @@ const RegisterPage = () => {
                 onChange={onChange}
               />
             </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                name="phone"
+                label="Phone Number"
+                id="phone"
+                autoComplete="tel"
+                value={phone}
+                onChange={onChange}
+              />
+            </Grid>
+            <Grid item xs={12}>
+              <TextField
+                fullWidth
+                name="address"
+                label="Address"
+                id="address"
+                autoComplete="address-line1"
+                value={address}
+                onChange={onChange}
+              />
+            </Grid>
           </Grid>
-          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
-          {success && <Alert severity="success" sx={{ mt: 2, width: '100%' }}>{success}</Alert>}
+          {localError && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{localError}</Alert>}
           <Button
             type="submit"
             fullWidth
