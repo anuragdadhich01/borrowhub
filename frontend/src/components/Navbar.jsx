@@ -21,7 +21,9 @@ import {
   ExitToApp, 
   Search,
   FavoriteBorder,
-  NotificationsNone 
+  NotificationsNone,
+  Message,
+  AdminPanelSettings
 } from '@mui/icons-material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
@@ -109,6 +111,19 @@ const Navbar = () => {
         <FavoriteBorder sx={{ mr: 2, color: 'text.secondary' }} />
         <Typography variant="body2">My Bookings</Typography>
       </MenuItem>
+      <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/messages'); }} sx={{ py: 1.5 }}>
+        <Message sx={{ mr: 2, color: 'text.secondary' }} />
+        <Typography variant="body2">Messages</Typography>
+      </MenuItem>
+      {user?.email === 'admin@borrowhub.com' && (
+        <>
+          <Divider />
+          <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/admin'); }} sx={{ py: 1.5 }}>
+            <AdminPanelSettings sx={{ mr: 2, color: 'primary.main' }} />
+            <Typography variant="body2" color="primary.main">Admin Panel</Typography>
+          </MenuItem>
+        </>
+      )}
       <Divider />
       <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
         <ExitToApp sx={{ mr: 2, color: 'error.main' }} />
@@ -237,6 +252,22 @@ const Navbar = () => {
                   }}
                 >
                   <NotificationsNone />
+                </IconButton>
+
+                {/* Messages Icon */}
+                <IconButton 
+                  color="inherit"
+                  component={RouterLink}
+                  to="/messages"
+                  sx={{ 
+                    color: 'text.secondary',
+                    '&:hover': { 
+                      backgroundColor: 'rgba(99, 102, 241, 0.08)',
+                      color: 'primary.main'
+                    }
+                  }}
+                >
+                  <Message />
                 </IconButton>
 
                 {/* List Item Button */}

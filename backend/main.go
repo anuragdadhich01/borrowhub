@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,6 +33,9 @@ type Item struct {
 	ImageURL    string    `json:"imageUrl"`
 	OwnerID     string    `json:"ownerId"`
 	Available   bool      `json:"available"`
+	Status      string    `json:"status"`      // "pending", "approved", "rejected"
+	Category    string    `json:"category"`
+	Location    string    `json:"location"`
 	CreatedAt   time.Time `json:"createdAt"`
 }
 
@@ -45,6 +49,8 @@ type User struct {
 	LastName  string    `json:"lastName"`
 	Phone     string    `json:"phone"`
 	Address   string    `json:"address"`
+	Role      string    `json:"role"`      // "user", "admin"
+	Status    string    `json:"status"`    // "active", "suspended", "banned"
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -75,6 +81,45 @@ type Payment struct {
 	UpdatedAt     time.Time `json:"updatedAt"`
 }
 
+// Rating model for user ratings
+type Rating struct {
+	ID         string    `json:"id"`
+	ItemID     string    `json:"itemId"`
+	UserID     string    `json:"userId"`
+	BookingID  string    `json:"bookingId"`
+	Rating     int       `json:"rating"` // 1-5 stars
+	Review     string    `json:"review"`
+	Photos     []string  `json:"photos,omitempty"`
+	IsVerified bool      `json:"isVerified"` // Based on completed booking
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
+}
+
+// Message model for in-app messaging
+type Message struct {
+	ID         string    `json:"id"`
+	FromUserID string    `json:"fromUserId"`
+	ToUserID   string    `json:"toUserId"`
+	ItemID     string    `json:"itemId,omitempty"` // Optional: item-specific conversation
+	BookingID  string    `json:"bookingId,omitempty"` // Optional: booking-specific conversation
+	Content    string    `json:"content"`
+	MessageType string   `json:"messageType"` // "text", "image", "file"
+	FileURL    string    `json:"fileUrl,omitempty"`
+	IsRead     bool      `json:"isRead"`
+	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// Admin Activity Log for tracking admin actions
+type AdminLog struct {
+	ID          string    `json:"id"`
+	AdminUserID string    `json:"adminUserId"`
+	Action      string    `json:"action"`     // "user_suspend", "item_approve", "item_reject", etc.
+	TargetType  string    `json:"targetType"` // "user", "item", "booking", "payment"
+	TargetID    string    `json:"targetId"`
+	Details     string    `json:"details"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 // Calendar availability response
 type AvailabilityCalendar struct {
 	Date      string `json:"date"`
@@ -91,19 +136,25 @@ type Claims struct {
 
 // In-memory database
 type Database struct {
-	Users    map[string]*User    `json:"users"`
-	Items    map[string]*Item    `json:"items"`
-	Bookings map[string]*Booking `json:"bookings"`
-	Payments map[string]*Payment `json:"payments"`
-	mutex    sync.RWMutex
+	Users     map[string]*User     `json:"users"`
+	Items     map[string]*Item     `json:"items"`
+	Bookings  map[string]*Booking  `json:"bookings"`
+	Payments  map[string]*Payment  `json:"payments"`
+	Ratings   map[string]*Rating   `json:"ratings"`
+	Messages  map[string]*Message  `json:"messages"`
+	AdminLogs map[string]*AdminLog `json:"adminLogs"`
+	mutex     sync.RWMutex
 }
 
 var (
 	db        = &Database{
-		Users:    make(map[string]*User),
-		Items:    make(map[string]*Item),
-		Bookings: make(map[string]*Booking),
-		Payments: make(map[string]*Payment),
+		Users:     make(map[string]*User),
+		Items:     make(map[string]*Item),
+		Bookings:  make(map[string]*Booking),
+		Payments:  make(map[string]*Payment),
+		Ratings:   make(map[string]*Rating),
+		Messages:  make(map[string]*Message),
+		AdminLogs: make(map[string]*AdminLog),
 	}
 	jwtSecret = []byte("your-secret-key") // In production, use environment variable
 	counter   = 0
@@ -133,6 +184,8 @@ func initSampleData() {
 		LastName:  "Doe",
 		Phone:     "1234567890",
 		Address:   "123 Main St",
+		Role:      "user",
+		Status:    "active",
 		CreatedAt: time.Now(),
 	}
 	
@@ -145,11 +198,29 @@ func initSampleData() {
 		LastName:  "Smith",
 		Phone:     "0987654321",
 		Address:   "456 Oak Ave",
+		Role:      "user",
+		Status:    "active",
+		CreatedAt: time.Now(),
+	}
+
+	// Create admin user
+	admin := &User{
+		ID:        generateID(),
+		Username:  "admin",
+		Email:     "admin@borrowhub.com",
+		Password:  string(hashedPassword),
+		FirstName: "Admin",
+		LastName:  "User",
+		Phone:     "1111111111",
+		Address:   "Admin Office",
+		Role:      "admin",
+		Status:    "active",
 		CreatedAt: time.Now(),
 	}
 
 	db.Users[user1.ID] = user1
 	db.Users[user2.ID] = user2
+	db.Users[admin.ID] = admin
 
 	// Create sample items
 	item1 := &Item{
@@ -162,6 +233,9 @@ func initSampleData() {
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Camera+DSLR",
 		OwnerID:     user1.ID,
 		Available:   true,
+		Status:      "approved",
+		Category:    "Electronics",
+		Location:    "Mumbai",
 		CreatedAt:   time.Now(),
 	}
 
@@ -175,6 +249,9 @@ func initSampleData() {
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Mountain+Bike",
 		OwnerID:     user2.ID,
 		Available:   true,
+		Status:      "approved",
+		Category:    "Sports",
+		Location:    "Delhi",
 		CreatedAt:   time.Now(),
 	}
 
@@ -188,6 +265,9 @@ func initSampleData() {
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Gaming+Console",
 		OwnerID:     user1.ID,
 		Available:   true,
+		Status:      "approved",
+		Category:    "Electronics",
+		Location:    "Mumbai",
 		CreatedAt:   time.Now(),
 	}
 
@@ -431,14 +511,134 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 	db.mutex.RLock()
 	defer db.mutex.RUnlock()
 
-	items := make([]*Item, 0, len(db.Items))
+	// Parse query parameters for filtering
+	searchTerm := r.URL.Query().Get("search")
+	category := r.URL.Query().Get("category")
+	location := r.URL.Query().Get("location")
+	sortBy := r.URL.Query().Get("sortBy")
+	availability := r.URL.Query().Get("availability")
+	minRating := r.URL.Query().Get("minRating")
+	maxPrice := r.URL.Query().Get("maxPrice")
+	minPrice := r.URL.Query().Get("minPrice")
+
+	items := make([]*Item, 0)
+	
+	// Filter items
 	for _, item := range db.Items {
-		if item.Available {
-			items = append(items, item)
+		// Skip items that are not approved for non-admin users
+		if item.Status != "approved" {
+			continue
 		}
+
+		// Availability filter
+		if availability == "available" && !item.Available {
+			continue
+		}
+
+		// Category filter
+		if category != "" && strings.ToLower(item.Category) != strings.ToLower(category) {
+			continue
+		}
+
+		// Location filter
+		if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
+			continue
+		}
+
+		// Price range filter
+		if minPrice != "" {
+			if minPriceFloat, err := strconv.ParseFloat(minPrice, 64); err == nil {
+				if item.DailyRate < minPriceFloat {
+					continue
+				}
+			}
+		}
+		if maxPrice != "" {
+			if maxPriceFloat, err := strconv.ParseFloat(maxPrice, 64); err == nil {
+				if item.DailyRate > maxPriceFloat {
+					continue
+				}
+			}
+		}
+
+		// Search term filter (search in name and description)
+		if searchTerm != "" {
+			searchLower := strings.ToLower(searchTerm)
+			nameLower := strings.ToLower(item.Name)
+			descLower := strings.ToLower(item.Description)
+			categoryLower := strings.ToLower(item.Category)
+			
+			if !strings.Contains(nameLower, searchLower) && 
+			   !strings.Contains(descLower, searchLower) && 
+			   !strings.Contains(categoryLower, searchLower) {
+				continue
+			}
+		}
+
+		// Rating filter (calculate average rating for item)
+		if minRating != "" {
+			if minRatingFloat, err := strconv.ParseFloat(minRating, 64); err == nil {
+				avgRating := calculateItemAverageRating(item.ID)
+				if avgRating < minRatingFloat {
+					continue
+				}
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	// Sort items
+	switch sortBy {
+	case "price-low":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].DailyRate < items[j].DailyRate
+		})
+	case "price-high":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].DailyRate > items[j].DailyRate
+		})
+	case "rating":
+		sort.Slice(items, func(i, j int) bool {
+			ratingI := calculateItemAverageRating(items[i].ID)
+			ratingJ := calculateItemAverageRating(items[j].ID)
+			return ratingI > ratingJ
+		})
+	case "newest":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].CreatedAt.After(items[j].CreatedAt)
+		})
+	default: // relevance
+		// For relevance, we'll sort by a combination of factors
+		// For now, just sort by availability then by creation date
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].Available != items[j].Available {
+				return items[i].Available
+			}
+			return items[i].CreatedAt.After(items[j].CreatedAt)
+		})
 	}
 
 	respondWithJSON(w, http.StatusOK, items)
+}
+
+// Helper function to calculate average rating for an item
+func calculateItemAverageRating(itemID string) float64 {
+	totalRating := 0
+	count := 0
+	
+	for _, rating := range db.Ratings {
+		if rating.ItemID == itemID {
+			totalRating += rating.Rating
+			count++
+		}
+	}
+	
+	if count == 0 {
+		return 0.0
+	}
+	
+	return float64(totalRating) / float64(count)
 }
 
 func getItemDetails(w http.ResponseWriter, r *http.Request) {
@@ -848,6 +1048,194 @@ func updateBookingStatus(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, booking)
 }
 
+// Rating and Review handlers
+func createRating(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	var rating Rating
+	if err := json.NewDecoder(r.Body).Decode(&rating); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Basic validation
+	if rating.ItemID == "" || rating.BookingID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID and Booking ID are required")
+		return
+	}
+
+	if rating.Rating < 1 || rating.Rating > 5 {
+		respondWithError(w, http.StatusBadRequest, "Rating must be between 1 and 5")
+		return
+	}
+
+	if len(rating.Review) > 1000 {
+		respondWithError(w, http.StatusBadRequest, "Review cannot exceed 1000 characters")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	// Check if booking exists and belongs to user
+	booking, exists := db.Bookings[rating.BookingID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Booking not found")
+		return
+	}
+
+	if booking.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only rate bookings you made")
+		return
+	}
+
+	if booking.Status != "completed" {
+		respondWithError(w, http.StatusConflict, "You can only rate completed bookings")
+		return
+	}
+
+	// Check if item exists
+	_, itemExists := db.Items[rating.ItemID]
+	if !itemExists {
+		respondWithError(w, http.StatusNotFound, "Item not found")
+		return
+	}
+
+	// Check if user already rated this booking
+	for _, existingRating := range db.Ratings {
+		if existingRating.BookingID == rating.BookingID && existingRating.UserID == userID {
+			respondWithError(w, http.StatusConflict, "You have already rated this booking")
+			return
+		}
+	}
+
+	// Create new rating
+	rating.ID = generateID()
+	rating.UserID = userID
+	rating.IsVerified = true // Verified since based on completed booking
+	rating.CreatedAt = time.Now()
+	rating.UpdatedAt = time.Now()
+
+	db.Ratings[rating.ID] = &rating
+
+	respondWithJSON(w, http.StatusCreated, rating)
+}
+
+func getItemRatings(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	itemID := vars["id"]
+
+	if itemID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID is required")
+		return
+	}
+
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	itemRatings := make([]*Rating, 0)
+	totalRating := 0
+	ratingCount := 0
+
+	for _, rating := range db.Ratings {
+		if rating.ItemID == itemID {
+			itemRatings = append(itemRatings, rating)
+			totalRating += rating.Rating
+			ratingCount++
+		}
+	}
+
+	averageRating := 0.0
+	if ratingCount > 0 {
+		averageRating = float64(totalRating) / float64(ratingCount)
+	}
+
+	response := map[string]interface{}{
+		"ratings":       itemRatings,
+		"averageRating": averageRating,
+		"totalReviews":  ratingCount,
+	}
+
+	respondWithJSON(w, http.StatusOK, response)
+}
+
+func updateRating(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	ratingID := vars["id"]
+	userID := r.Header.Get("X-User-ID")
+
+	if ratingID == "" {
+		respondWithError(w, http.StatusBadRequest, "Rating ID is required")
+		return
+	}
+
+	var updates Rating
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	rating, exists := db.Ratings[ratingID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Rating not found")
+		return
+	}
+
+	if rating.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only update your own ratings")
+		return
+	}
+
+	// Update fields
+	if updates.Rating >= 1 && updates.Rating <= 5 {
+		rating.Rating = updates.Rating
+	}
+	if updates.Review != "" && len(updates.Review) <= 1000 {
+		rating.Review = updates.Review
+	}
+	if updates.Photos != nil {
+		rating.Photos = updates.Photos
+	}
+	rating.UpdatedAt = time.Now()
+
+	respondWithJSON(w, http.StatusOK, rating)
+}
+
+func deleteRating(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	ratingID := vars["id"]
+	userID := r.Header.Get("X-User-ID")
+
+	if ratingID == "" {
+		respondWithError(w, http.StatusBadRequest, "Rating ID is required")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	rating, exists := db.Ratings[ratingID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Rating not found")
+		return
+	}
+
+	if rating.UserID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only delete your own ratings")
+		return
+	}
+
+	delete(db.Ratings, ratingID)
+	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Rating deleted successfully"})
+}
+
 // Payment handlers for Razorpay integration
 func createPaymentOrder(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
@@ -1003,6 +1391,477 @@ func getPaymentHistory(w http.ResponseWriter, r *http.Request) {
 
 	respondWithJSON(w, http.StatusOK, userPayments)
 }
+// Messaging handlers
+func sendMessage(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	var message Message
+	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Basic validation
+	if message.ToUserID == "" || message.Content == "" {
+		respondWithError(w, http.StatusBadRequest, "Recipient and content are required")
+		return
+	}
+
+	if message.ToUserID == userID {
+		respondWithError(w, http.StatusBadRequest, "You cannot send a message to yourself")
+		return
+	}
+
+	if len(message.Content) > 2000 {
+		respondWithError(w, http.StatusBadRequest, "Message cannot exceed 2000 characters")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	// Check if recipient exists
+	_, recipientExists := db.Users[message.ToUserID]
+	if !recipientExists {
+		respondWithError(w, http.StatusNotFound, "Recipient not found")
+		return
+	}
+
+	// Create new message
+	message.ID = generateID()
+	message.FromUserID = userID
+	message.IsRead = false
+	message.MessageType = "text"
+	if message.MessageType == "" {
+		message.MessageType = "text"
+	}
+	message.CreatedAt = time.Now()
+
+	db.Messages[message.ID] = &message
+
+	respondWithJSON(w, http.StatusCreated, message)
+}
+
+func getConversation(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	otherUserID := vars["userId"]
+
+	if otherUserID == "" {
+		respondWithError(w, http.StatusBadRequest, "Other user ID is required")
+		return
+	}
+
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	conversation := make([]*Message, 0)
+	for _, message := range db.Messages {
+		if (message.FromUserID == userID && message.ToUserID == otherUserID) ||
+		   (message.FromUserID == otherUserID && message.ToUserID == userID) {
+			conversation = append(conversation, message)
+		}
+	}
+
+	// Sort by creation time (you might want to implement a proper sorting mechanism)
+	respondWithJSON(w, http.StatusOK, conversation)
+}
+
+func markMessageAsRead(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	vars := mux.Vars(r)
+	messageID := vars["id"]
+
+	if messageID == "" {
+		respondWithError(w, http.StatusBadRequest, "Message ID is required")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	message, exists := db.Messages[messageID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Message not found")
+		return
+	}
+
+	if message.ToUserID != userID {
+		respondWithError(w, http.StatusForbidden, "You can only mark your own messages as read")
+		return
+	}
+
+	message.IsRead = true
+
+	respondWithJSON(w, http.StatusOK, message)
+}
+
+func getUserConversations(w http.ResponseWriter, r *http.Request) {
+	userID := r.Header.Get("X-User-ID")
+	if userID == "" {
+		respondWithError(w, http.StatusUnauthorized, "User authentication required")
+		return
+	}
+
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Get unique conversation partners
+	conversationPartners := make(map[string]*Message) // Latest message with each partner
+	
+	for _, message := range db.Messages {
+		var partnerID string
+		if message.FromUserID == userID {
+			partnerID = message.ToUserID
+		} else if message.ToUserID == userID {
+			partnerID = message.FromUserID
+		} else {
+			continue
+		}
+
+		// Keep only the latest message with each partner
+		if existing, exists := conversationPartners[partnerID]; !exists || message.CreatedAt.After(existing.CreatedAt) {
+			conversationPartners[partnerID] = message
+		}
+	}
+
+	// Convert to slice with user details
+	conversations := make([]map[string]interface{}, 0)
+	for partnerID, lastMessage := range conversationPartners {
+		if partner, exists := db.Users[partnerID]; exists {
+			partnerInfo := *partner
+			partnerInfo.Password = "" // Remove password
+			
+			conversations = append(conversations, map[string]interface{}{
+				"partner":     partnerInfo,
+				"lastMessage": lastMessage,
+			})
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, conversations)
+}
+
+// Admin middleware to check if user is admin
+func adminMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		userID := r.Header.Get("X-User-ID")
+		if userID == "" {
+			respondWithError(w, http.StatusUnauthorized, "User authentication required")
+			return
+		}
+
+		db.mutex.RLock()
+		user, exists := db.Users[userID]
+		db.mutex.RUnlock()
+
+		if !exists {
+			respondWithError(w, http.StatusUnauthorized, "User not found")
+			return
+		}
+
+		if user.Role != "admin" {
+			respondWithError(w, http.StatusForbidden, "Admin access required")
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Helper function to create admin log
+func createAdminLog(adminUserID, action, targetType, targetID, details string) {
+	log := &AdminLog{
+		ID:          generateID(),
+		AdminUserID: adminUserID,
+		Action:      action,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		Details:     details,
+		CreatedAt:   time.Now(),
+	}
+	db.AdminLogs[log.ID] = log
+}
+
+// Admin Dashboard - Get statistics
+func getAdminDashboard(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	totalUsers := len(db.Users)
+	totalItems := len(db.Items)
+	totalBookings := len(db.Bookings)
+	totalRevenue := 0.0
+
+	// Calculate statistics
+	activeUsers := 0
+	pendingItems := 0
+	activeBookings := 0
+
+	for _, user := range db.Users {
+		if user.Status == "active" {
+			activeUsers++
+		}
+	}
+
+	for _, item := range db.Items {
+		if item.Status == "pending" {
+			pendingItems++
+		}
+	}
+
+	for _, booking := range db.Bookings {
+		if booking.Status == "confirmed" || booking.Status == "completed" {
+			activeBookings++
+			if booking.Status == "completed" {
+				totalRevenue += booking.TotalPrice
+			}
+		}
+	}
+
+	stats := map[string]interface{}{
+		"totalUsers":     totalUsers,
+		"activeUsers":    activeUsers,
+		"totalItems":     totalItems,
+		"pendingItems":   pendingItems,
+		"totalBookings":  totalBookings,
+		"activeBookings": activeBookings,
+		"totalRevenue":   totalRevenue,
+	}
+
+	respondWithJSON(w, http.StatusOK, stats)
+}
+
+// Admin User Management
+func getAdminUsers(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	users := make([]*User, 0, len(db.Users))
+	for _, user := range db.Users {
+		responseUser := *user
+		responseUser.Password = "" // Remove password
+		users = append(users, &responseUser)
+	}
+
+	respondWithJSON(w, http.StatusOK, users)
+}
+
+func updateUserStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	userID := vars["id"]
+	adminUserID := r.Header.Get("X-User-ID")
+
+	if userID == "" {
+		respondWithError(w, http.StatusBadRequest, "User ID is required")
+		return
+	}
+
+	var request struct {
+		Status string `json:"status"`
+		Reason string `json:"reason,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	validStatuses := []string{"active", "suspended", "banned"}
+	isValidStatus := false
+	for _, status := range validStatuses {
+		if request.Status == status {
+			isValidStatus = true
+			break
+		}
+	}
+
+	if !isValidStatus {
+		respondWithError(w, http.StatusBadRequest, "Invalid status")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	user, exists := db.Users[userID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "User not found")
+		return
+	}
+
+	oldStatus := user.Status
+	user.Status = request.Status
+
+	// Create admin log
+	details := fmt.Sprintf("Status changed from %s to %s", oldStatus, request.Status)
+	if request.Reason != "" {
+		details += fmt.Sprintf(" - Reason: %s", request.Reason)
+	}
+	createAdminLog(adminUserID, "user_status_update", "user", userID, details)
+
+	responseUser := *user
+	responseUser.Password = ""
+
+	respondWithJSON(w, http.StatusOK, responseUser)
+}
+
+// Admin Item Management
+func getAdminItems(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Parse query parameters
+	status := r.URL.Query().Get("status")
+
+	items := make([]*Item, 0)
+	for _, item := range db.Items {
+		if status == "" || item.Status == status {
+			items = append(items, item)
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, items)
+}
+
+func updateItemStatus(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	itemID := vars["id"]
+	adminUserID := r.Header.Get("X-User-ID")
+
+	if itemID == "" {
+		respondWithError(w, http.StatusBadRequest, "Item ID is required")
+		return
+	}
+
+	var request struct {
+		Status string `json:"status"`
+		Reason string `json:"reason,omitempty"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	validStatuses := []string{"pending", "approved", "rejected"}
+	isValidStatus := false
+	for _, status := range validStatuses {
+		if request.Status == status {
+			isValidStatus = true
+			break
+		}
+	}
+
+	if !isValidStatus {
+		respondWithError(w, http.StatusBadRequest, "Invalid status")
+		return
+	}
+
+	db.mutex.Lock()
+	defer db.mutex.Unlock()
+
+	item, exists := db.Items[itemID]
+	if !exists {
+		respondWithError(w, http.StatusNotFound, "Item not found")
+		return
+	}
+
+	oldStatus := item.Status
+	item.Status = request.Status
+
+	// If rejected, make item unavailable
+	if request.Status == "rejected" {
+		item.Available = false
+	}
+
+	// Create admin log
+	details := fmt.Sprintf("Status changed from %s to %s", oldStatus, request.Status)
+	if request.Reason != "" {
+		details += fmt.Sprintf(" - Reason: %s", request.Reason)
+	}
+	createAdminLog(adminUserID, "item_status_update", "item", itemID, details)
+
+	respondWithJSON(w, http.StatusOK, item)
+}
+
+// Admin Booking Management
+func getAdminBookings(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Parse query parameters
+	status := r.URL.Query().Get("status")
+
+	bookings := make([]*Booking, 0)
+	for _, booking := range db.Bookings {
+		if status == "" || booking.Status == status {
+			bookings = append(bookings, booking)
+		}
+	}
+
+	respondWithJSON(w, http.StatusOK, bookings)
+}
+
+// Admin Analytics
+func getAdminAnalytics(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	// Revenue analytics
+	revenueByMonth := make(map[string]float64)
+	bookingsByStatus := make(map[string]int)
+	usersByMonth := make(map[string]int)
+
+	for _, booking := range db.Bookings {
+		month := booking.CreatedAt.Format("2006-01")
+		if booking.Status == "completed" {
+			revenueByMonth[month] += booking.TotalPrice
+		}
+		bookingsByStatus[booking.Status]++
+	}
+
+	for _, user := range db.Users {
+		month := user.CreatedAt.Format("2006-01")
+		usersByMonth[month]++
+	}
+
+	analytics := map[string]interface{}{
+		"revenueByMonth":   revenueByMonth,
+		"bookingsByStatus": bookingsByStatus,
+		"usersByMonth":     usersByMonth,
+	}
+
+	respondWithJSON(w, http.StatusOK, analytics)
+}
+
+// Admin Logs
+func getAdminLogs(w http.ResponseWriter, r *http.Request) {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	logs := make([]*AdminLog, 0, len(db.AdminLogs))
+	for _, log := range db.AdminLogs {
+		logs = append(logs, log)
+	}
+
+	respondWithJSON(w, http.StatusOK, logs)
+}
+
 // Image upload handler (basic implementation)
 func uploadImage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
@@ -1312,6 +2171,31 @@ func setupRouter() {
 	router.HandleFunc("/api/payments/verify", verifyPayment).Methods("POST", "OPTIONS")
 	router.HandleFunc("/api/payments/history", getPaymentHistory).Methods("GET", "OPTIONS")
 
+	// Rating and Review routes
+	router.HandleFunc("/api/ratings", createRating).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/items/{id}/ratings", getItemRatings).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/ratings/{id}", updateRating).Methods("PUT", "OPTIONS")
+	router.HandleFunc("/api/ratings/{id}", deleteRating).Methods("DELETE", "OPTIONS")
+
+	// Messaging routes
+	router.HandleFunc("/api/messages", sendMessage).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/messages/conversations", getUserConversations).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/messages/conversation/{userId}", getConversation).Methods("GET", "OPTIONS")
+	router.HandleFunc("/api/messages/{id}/read", markMessageAsRead).Methods("PUT", "OPTIONS")
+
+	// Admin routes (protected by admin middleware)
+	adminRouter := router.PathPrefix("/api/admin").Subrouter()
+	adminRouter.Use(adminMiddleware)
+	
+	adminRouter.HandleFunc("/dashboard", getAdminDashboard).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/users", getAdminUsers).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/users/{id}/status", updateUserStatus).Methods("PUT", "OPTIONS")
+	adminRouter.HandleFunc("/items", getAdminItems).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/items/{id}/status", updateItemStatus).Methods("PUT", "OPTIONS")
+	adminRouter.HandleFunc("/bookings", getAdminBookings).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/analytics", getAdminAnalytics).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/logs", getAdminLogs).Methods("GET", "OPTIONS")
+
 	// Image upload
 	router.HandleFunc("/api/upload/image", uploadImage).Methods("POST", "OPTIONS")
 
@@ -1355,6 +2239,7 @@ func main() {
 		fmt.Println("Sample users:")
 		fmt.Println("- john@example.com / password123")
 		fmt.Println("- jane@example.com / password123")
+		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
 		
 		lambda.Start(lambdaHandler)
 	} else {
@@ -1363,6 +2248,7 @@ func main() {
 		fmt.Println("Sample users:")
 		fmt.Println("- john@example.com / password123")
 		fmt.Println("- jane@example.com / password123")
+		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
 		
 		log.Fatal(http.ListenAndServe(":8080", httpHandler))
 	}
