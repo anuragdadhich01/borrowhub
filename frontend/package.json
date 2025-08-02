@@ -26,6 +26,7 @@
   "devDependencies": {
     "@vitejs/plugin-react": "^4.0.3",
     "@vitejs/plugin-react-swc": "^3.11.0",
+    "terser": "^5.43.1",
     "vite": "^6.3.5"
   }
 }
