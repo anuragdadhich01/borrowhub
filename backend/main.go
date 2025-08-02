@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -510,14 +511,134 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 	db.mutex.RLock()
 	defer db.mutex.RUnlock()
 
-	items := make([]*Item, 0, len(db.Items))
+	// Parse query parameters for filtering
+	searchTerm := r.URL.Query().Get("search")
+	category := r.URL.Query().Get("category")
+	location := r.URL.Query().Get("location")
+	sortBy := r.URL.Query().Get("sortBy")
+	availability := r.URL.Query().Get("availability")
+	minRating := r.URL.Query().Get("minRating")
+	maxPrice := r.URL.Query().Get("maxPrice")
+	minPrice := r.URL.Query().Get("minPrice")
+
+	items := make([]*Item, 0)
+	
+	// Filter items
 	for _, item := range db.Items {
-		if item.Available {
-			items = append(items, item)
+		// Skip items that are not approved for non-admin users
+		if item.Status != "approved" {
+			continue
 		}
+
+		// Availability filter
+		if availability == "available" && !item.Available {
+			continue
+		}
+
+		// Category filter
+		if category != "" && strings.ToLower(item.Category) != strings.ToLower(category) {
+			continue
+		}
+
+		// Location filter
+		if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
+			continue
+		}
+
+		// Price range filter
+		if minPrice != "" {
+			if minPriceFloat, err := strconv.ParseFloat(minPrice, 64); err == nil {
+				if item.DailyRate < minPriceFloat {
+					continue
+				}
+			}
+		}
+		if maxPrice != "" {
+			if maxPriceFloat, err := strconv.ParseFloat(maxPrice, 64); err == nil {
+				if item.DailyRate > maxPriceFloat {
+					continue
+				}
+			}
+		}
+
+		// Search term filter (search in name and description)
+		if searchTerm != "" {
+			searchLower := strings.ToLower(searchTerm)
+			nameLower := strings.ToLower(item.Name)
+			descLower := strings.ToLower(item.Description)
+			categoryLower := strings.ToLower(item.Category)
+			
+			if !strings.Contains(nameLower, searchLower) && 
+			   !strings.Contains(descLower, searchLower) && 
+			   !strings.Contains(categoryLower, searchLower) {
+				continue
+			}
+		}
+
+		// Rating filter (calculate average rating for item)
+		if minRating != "" {
+			if minRatingFloat, err := strconv.ParseFloat(minRating, 64); err == nil {
+				avgRating := calculateItemAverageRating(item.ID)
+				if avgRating < minRatingFloat {
+					continue
+				}
+			}
+		}
+
+		items = append(items, item)
+	}
+
+	// Sort items
+	switch sortBy {
+	case "price-low":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].DailyRate < items[j].DailyRate
+		})
+	case "price-high":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].DailyRate > items[j].DailyRate
+		})
+	case "rating":
+		sort.Slice(items, func(i, j int) bool {
+			ratingI := calculateItemAverageRating(items[i].ID)
+			ratingJ := calculateItemAverageRating(items[j].ID)
+			return ratingI > ratingJ
+		})
+	case "newest":
+		sort.Slice(items, func(i, j int) bool {
+			return items[i].CreatedAt.After(items[j].CreatedAt)
+		})
+	default: // relevance
+		// For relevance, we'll sort by a combination of factors
+		// For now, just sort by availability then by creation date
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].Available != items[j].Available {
+				return items[i].Available
+			}
+			return items[i].CreatedAt.After(items[j].CreatedAt)
+		})
 	}
 
 	respondWithJSON(w, http.StatusOK, items)
+}
+
+// Helper function to calculate average rating for an item
+func calculateItemAverageRating(itemID string) float64 {
+	totalRating := 0
+	count := 0
+	
+	for _, rating := range db.Ratings {
+		if rating.ItemID == itemID {
+			totalRating += rating.Rating
+			count++
+		}
+	}
+	
+	if count == 0 {
+		return 0.0
+	}
+	
+	return float64(totalRating) / float64(count)
 }
 
 func getItemDetails(w http.ResponseWriter, r *http.Request) {

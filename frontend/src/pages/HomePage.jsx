@@ -174,11 +174,58 @@ const HomePage = () => {
         applyFilters(currentFilters);
     };
 
-    const handleFilter = (filters) => {
-        applyFilters(filters);
+    const handleFilter = async (filters) => {
+        // Use backend filtering instead of client-side filtering
+        await applyFiltersWithBackend(filters);
     };
 
-    const applyFilters = (filters) => {
+    const applyFiltersWithBackend = async (filters) => {
+        try {
+            setLoading(true);
+            
+            // Build query parameters for backend filtering
+            const queryParams = new URLSearchParams();
+            
+            if (filters.searchTerm && filters.searchTerm.trim()) {
+                queryParams.append('search', filters.searchTerm.trim());
+            }
+            if (filters.category && filters.category !== '') {
+                queryParams.append('category', filters.category);
+            }
+            if (filters.location && filters.location.trim()) {
+                queryParams.append('location', filters.location.trim());
+            }
+            if (filters.sortBy && filters.sortBy !== 'relevance') {
+                queryParams.append('sortBy', filters.sortBy);
+            }
+            if (filters.availability && filters.availability !== 'all') {
+                queryParams.append('availability', filters.availability);
+            }
+            if (filters.rating && filters.rating > 0) {
+                queryParams.append('minRating', filters.rating.toString());
+            }
+            if (filters.priceRange && filters.priceRange.length === 2) {
+                queryParams.append('minPrice', filters.priceRange[0].toString());
+                queryParams.append('maxPrice', filters.priceRange[1].toString());
+            }
+
+            const url = `/api/items${queryParams.toString() ? '?' + queryParams.toString() : ''}`;
+            const res = await axios.get(url);
+            setFilteredItems(res.data || []);
+            setError(null);
+            
+        } catch (err) {
+            console.error("Error filtering items:", err);
+            
+            // Fallback to client-side filtering if backend filtering fails
+            applyFiltersClientSide(filters);
+            
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const applyFiltersClientSide = (filters) => {
         let filtered = [...items];
 
         // Apply search term
@@ -193,12 +240,12 @@ const HomePage = () => {
 
         // Apply category filter
         if (filters.category && filters.category !== '') {
-            // Map category to item properties - this would be enhanced with actual category field in items
+            // Map category to item properties
             const categoryKeywords = {
                 'cameras': ['camera', 'dslr', 'photography', 'photo'],
-                'electronics': ['electronics', 'laptop', 'phone', 'computer', 'macbook', 'iphone'],
+                'electronics': ['electronics', 'laptop', 'phone', 'computer', 'macbook', 'iphone', 'gaming', 'console'],
                 'tools': ['tool', 'drill', 'hammer', 'equipment'],
-                'sports': ['bike', 'bicycle', 'sports', 'fitness'],
+                'sports': ['bike', 'bicycle', 'sports', 'fitness', 'mountain'],
                 'gaming': ['game', 'gaming', 'console', 'xbox', 'playstation'],
                 'music': ['music', 'audio', 'speaker', 'headphone']
             };
@@ -229,34 +276,6 @@ const HomePage = () => {
             }
         }
 
-        // Apply location filter (basic text matching)
-        if (filters.location && filters.location.trim()) {
-            const locationLower = filters.location.toLowerCase();
-            // For now, we'll filter based on a simple location match
-            // In a real app, this would use proper location/distance filtering
-            filtered = filtered.filter(item => {
-                // Mock location data - in real app this would come from item data
-                return ['mumbai', 'delhi', 'bangalore', 'pune'].some(city => 
-                    city.includes(locationLower) || locationLower.includes(city)
-                );
-            });
-        }
-
-        // Apply minimum rating filter
-        if (filters.rating && filters.rating > 0) {
-            filtered = filtered.filter(item => {
-                // Mock rating - in real app this would come from reviews
-                const mockRating = 4.5; // All items have good rating for demo
-                return mockRating >= filters.rating;
-            });
-        }
-
-        // Apply verified owners only filter
-        if (filters.verifiedOnly) {
-            // All items are from verified owners in this demo
-            // In real app, this would filter based on owner verification status
-        }
-
         // Apply sorting
         if (filters.sortBy) {
             switch (filters.sortBy) {
@@ -279,12 +298,17 @@ const HomePage = () => {
                     break;
                 case 'relevance':
                 default:
-                    // Keep current order for relevance
+                    // Default sorting - no change
                     break;
             }
         }
 
         setFilteredItems(filtered);
+    };
+
+    // Legacy client-side filtering for backward compatibility
+    const applyFilters = (filters) => {
+        applyFiltersClientSide(filters);
     };
 
     const categories = [
