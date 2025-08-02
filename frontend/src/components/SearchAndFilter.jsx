@@ -38,9 +38,31 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
   const [rating, setRating] = useState(0);
   const [verifiedOnly, setVerifiedOnly] = useState(false);
 
-  const handleSearch = () => {
+  // Real-time search with debouncing
+  const [searchDebounceTimer, setSearchDebounceTimer] = useState(null);
+
+  // Handle real-time search with debouncing
+  const handleSearchChange = (e) => {
+    const value = e.target.value;
+    setSearchTerm(value);
+    
+    // Clear existing timer
+    if (searchDebounceTimer) {
+      clearTimeout(searchDebounceTimer);
+    }
+    
+    // Set new timer for debounced search
+    const newTimer = setTimeout(() => {
+      applyCurrentFilters(value);
+    }, 300); // 300ms debounce
+    
+    setSearchDebounceTimer(newTimer);
+  };
+
+  // Apply all current filters
+  const applyCurrentFilters = (customSearchTerm = null) => {
     const filters = {
-      searchTerm,
+      searchTerm: customSearchTerm !== null ? customSearchTerm : searchTerm,
       category: selectedCategory,
       priceRange,
       location,
@@ -49,8 +71,61 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
       rating,
       verifiedOnly
     };
-    onSearch(searchTerm);
     onFilter(filters);
+  };
+
+  const handleSearch = () => {
+    applyCurrentFilters();
+  };
+
+  const handleQuickFilter = (filter) => {
+    if (filter.category) {
+      setSelectedCategory(filter.category);
+      // Apply filters immediately
+      setTimeout(() => {
+        const filters = {
+          searchTerm,
+          category: filter.category,
+          priceRange,
+          location,
+          sortBy,
+          availability,
+          rating,
+          verifiedOnly
+        };
+        onFilter(filters);
+      }, 0);
+    } else if (filter.type === 'availability') {
+      setAvailability('available');
+      setTimeout(() => {
+        const filters = {
+          searchTerm,
+          category: selectedCategory,
+          priceRange,
+          location,
+          sortBy,
+          availability: 'available',
+          rating,
+          verifiedOnly
+        };
+        onFilter(filters);
+      }, 0);
+    } else if (filter.type === 'price') {
+      setPriceRange([0, 1000]);
+      setTimeout(() => {
+        const filters = {
+          searchTerm,
+          category: selectedCategory,
+          priceRange: [0, 1000],
+          location,
+          sortBy,
+          availability,
+          rating,
+          verifiedOnly
+        };
+        onFilter(filters);
+      }, 0);
+    }
   };
 
   const handleClearFilters = () => {
@@ -62,8 +137,59 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
     setAvailability('all');
     setRating(0);
     setVerifiedOnly(false);
-    onSearch('');
     onFilter({});
+  };
+
+  // Apply filters when any filter value changes
+  const handleFilterChange = (filterType, value) => {
+    let updatedFilters = {};
+    
+    switch (filterType) {
+      case 'category':
+        setSelectedCategory(value);
+        updatedFilters.category = value;
+        break;
+      case 'sortBy':
+        setSortBy(value);
+        updatedFilters.sortBy = value;
+        break;
+      case 'availability':
+        setAvailability(value);
+        updatedFilters.availability = value;
+        break;
+      case 'rating':
+        setRating(value);
+        updatedFilters.rating = value;
+        break;
+      case 'priceRange':
+        setPriceRange(value);
+        updatedFilters.priceRange = value;
+        break;
+      case 'location':
+        setLocation(value);
+        updatedFilters.location = value;
+        break;
+      case 'verifiedOnly':
+        setVerifiedOnly(value);
+        updatedFilters.verifiedOnly = value;
+        break;
+    }
+    
+    // Apply all current filters with the updated value
+    setTimeout(() => {
+      const filters = {
+        searchTerm,
+        category: selectedCategory,
+        priceRange,
+        location,
+        sortBy,
+        availability,
+        rating,
+        verifiedOnly,
+        ...updatedFilters
+      };
+      onFilter(filters);
+    }, 0);
   };
 
   const quickFilters = [
@@ -85,7 +211,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
               fullWidth
               placeholder="Search for cameras, tools, bikes, electronics..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={handleSearchChange}
               onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
               InputProps={{
                 startAdornment: (
@@ -93,18 +219,17 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                     <Search sx={{ color: 'text.secondary' }} />
                   </InputAdornment>
                 ),
-                endAdornment: (
+                endAdornment: searchTerm && (
                   <InputAdornment position="end">
                     <Button
-                      variant="contained"
-                      onClick={handleSearch}
-                      sx={{
-                        borderRadius: 1.5,
-                        px: 3,
-                        fontWeight: 600
+                      size="small"
+                      onClick={() => {
+                        setSearchTerm('');
+                        applyCurrentFilters('');
                       }}
+                      sx={{ minWidth: 'auto', p: 1 }}
                     >
-                      Search
+                      <Close sx={{ fontSize: 16 }} />
                     </Button>
                   </InputAdornment>
                 ),
@@ -130,7 +255,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
               fullWidth
               placeholder="Location (e.g., Mumbai, Delhi)"
               value={location}
-              onChange={(e) => setLocation(e.target.value)}
+              onChange={(e) => handleFilterChange('location', e.target.value)}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -179,14 +304,14 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
               <Chip
                 key={index}
                 label={filter.label}
-                variant="outlined"
+                variant={
+                  (filter.category && selectedCategory === filter.category) ||
+                  (filter.type === 'availability' && availability === 'available') ||
+                  (filter.type === 'price' && priceRange[1] === 1000)
+                    ? "filled" : "outlined"
+                }
                 clickable
-                onClick={() => {
-                  if (filter.category) {
-                    setSelectedCategory(filter.category);
-                  }
-                  handleSearch();
-                }}
+                onClick={() => handleQuickFilter(filter)}
                 sx={{
                   borderRadius: 2,
                   fontWeight: 500,
@@ -235,7 +360,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                   <Select
                     value={selectedCategory}
                     label="Category"
-                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    onChange={(e) => handleFilterChange('category', e.target.value)}
                     sx={{ borderRadius: 2 }}
                   >
                     <MenuItem value="">All Categories</MenuItem>
@@ -256,7 +381,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                   <Select
                     value={sortBy}
                     label="Sort By"
-                    onChange={(e) => setSortBy(e.target.value)}
+                    onChange={(e) => handleFilterChange('sortBy', e.target.value)}
                     sx={{ borderRadius: 2 }}
                   >
                     <MenuItem value="relevance">Relevance</MenuItem>
@@ -276,7 +401,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                   <Select
                     value={availability}
                     label="Availability"
-                    onChange={(e) => setAvailability(e.target.value)}
+                    onChange={(e) => handleFilterChange('availability', e.target.value)}
                     sx={{ borderRadius: 2 }}
                   >
                     <MenuItem value="all">All Items</MenuItem>
@@ -293,7 +418,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                   <Select
                     value={rating}
                     label="Minimum Rating"
-                    onChange={(e) => setRating(e.target.value)}
+                    onChange={(e) => handleFilterChange('rating', e.target.value)}
                     sx={{ borderRadius: 2 }}
                   >
                     <MenuItem value={0}>Any Rating</MenuItem>
@@ -311,7 +436,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                 </Typography>
                 <Slider
                   value={priceRange}
-                  onChange={(e, newValue) => setPriceRange(newValue)}
+                  onChange={(e, newValue) => handleFilterChange('priceRange', newValue)}
                   valueLabelDisplay="auto"
                   min={0}
                   max={10000}
@@ -334,7 +459,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
                     control={
                       <Switch
                         checked={verifiedOnly}
-                        onChange={(e) => setVerifiedOnly(e.target.checked)}
+                        onChange={(e) => handleFilterChange('verifiedOnly', e.target.checked)}
                         color="primary"
                       />
                     }
@@ -357,7 +482,7 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
               </Button>
               <Button
                 variant="contained"
-                onClick={handleSearch}
+                onClick={applyCurrentFilters}
                 sx={{ borderRadius: 2, fontWeight: 600, px: 4 }}
               >
                 Apply Filters
