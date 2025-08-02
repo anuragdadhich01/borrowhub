@@ -16,6 +16,8 @@ backend/vendor/
 frontend/dist/
 backend/bin/
 backend/build/
+backend/borrowhub
+backend/borrowhub.exe
 
 # Log files
 *.log
@@ -27,6 +29,8 @@ yarn-error.log*
 .env
 .env.*
 !.env.example
+!.env.production
+!.env.development
 
 # SAM build artifacts
 .aws-sam/
@@ -34,7 +38,3 @@ yarn-error.log*
 # OS-generated files
 .DS_Store
 Thumbs.db
-
-# Add this line to your .gitignore file
-backend/config/default.json# Development environment file
-.env
