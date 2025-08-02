@@ -43,9 +43,13 @@ import {
   Block,
   CheckCircle,
   Cancel,
-  Analytics
+  Analytics,
+  Storage,
+  Settings
 } from '@mui/icons-material';
 import axiosInstance from '../api/axios';
+import DatabaseManagement from './DatabaseManagement';
+import SystemSettings from './SystemSettings';
 
 // Dashboard Stats Cards
 const StatCard = ({ title, value, icon, color = 'primary' }) => (
@@ -502,7 +506,7 @@ const AdminDashboard = () => {
   const fetchDashboardStats = async () => {
     try {
       const response = await axiosInstance.get('/api/admin/dashboard');
-      setStats(response.data);
+      setStats(response.data.stats || response.data); // Handle both old and new response format
     } catch (error) {
       setError('Failed to load dashboard stats');
       console.error('Error fetching dashboard stats:', error);
@@ -603,6 +607,8 @@ const AdminDashboard = () => {
           <Tab label="Users" icon={<People />} />
           <Tab label="Items" icon={<Inventory />} />
           <Tab label="Bookings" icon={<BookOnline />} />
+          <Tab label="Database" icon={<Storage />} />
+          <Tab label="Settings" icon={<Settings />} />
         </Tabs>
 
         <Box sx={{ p: 3 }}>
@@ -611,6 +617,8 @@ const AdminDashboard = () => {
           {tabValue === 2 && (
             <Typography>Booking management coming soon...</Typography>
           )}
+          {tabValue === 3 && <DatabaseManagement />}
+          {tabValue === 4 && <SystemSettings />}
         </Box>
       </Paper>
     </Box>
