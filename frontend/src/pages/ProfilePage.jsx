@@ -14,7 +14,7 @@ import {
 } from '@mui/material';
 import { Edit, Save, Cancel } from '@mui/icons-material';
 import AuthContext from '../context/AuthContext';
-import axios from 'axios';
+import axios from '../api/axios';
 
 const ProfilePage = () => {
   const { user, isAuthenticated } = useContext(AuthContext);

@@ -226,7 +226,7 @@ func authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Skip auth for public endpoints
-		if (strings.HasPrefix(r.URL.Path, "/items") || strings.HasPrefix(r.URL.Path, "/api/items")) && r.Method == "GET" ||
+		if ((strings.HasPrefix(r.URL.Path, "/items") || strings.HasPrefix(r.URL.Path, "/api/items")) && r.Method == "GET") ||
 		   r.URL.Path == "/login" ||
 		   r.URL.Path == "/register" ||
 		   r.URL.Path == "/health" {

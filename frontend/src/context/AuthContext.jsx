@@ -1,5 +1,5 @@
 import React, { createContext, useReducer, useEffect } from 'react';
-import axios from 'axios';
+import axios from '../api/axios';
 
 // 1. Create the context
 const AuthContext = createContext();
@@ -69,15 +69,6 @@ const authReducer = (state, action) => {
 // 3. Create the AuthProvider component
 export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
-
-  useEffect(() => {
-    // Set up axios defaults
-    if (state.token) {
-      axios.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
-    } else {
-      delete axios.defaults.headers.common['Authorization'];
-    }
-  }, [state.token]);
 
   const login = async (email, password) => {
     dispatch({ type: 'LOGIN_START' });
