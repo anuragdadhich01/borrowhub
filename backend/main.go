@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-lambda-go/events"
+	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"github.com/rs/cors"
@@ -80,6 +84,7 @@ var (
 	jwtSecret = []byte("your-secret-key") // In production, use environment variable
 	counter   = 0
 	counterMu sync.Mutex
+	httpHandler http.Handler // Global handler for Lambda
 )
 
 // Helper function to generate IDs
@@ -651,10 +656,122 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, responseUser)
 }
 
-func main() {
-	// Initialize sample data
-	initSampleData()
+// Lambda handler function
+func lambdaHandler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+	// Convert API Gateway request to HTTP request
+	req, err := apiGatewayRequestToHTTPRequest(request)
+	if err != nil {
+		return events.APIGatewayProxyResponse{
+			StatusCode: 500,
+			Headers: map[string]string{
+				"Content-Type": "application/json",
+				"Access-Control-Allow-Origin": "https://borrowhubb.live",
+				"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+				"Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
+				"Access-Control-Allow-Credentials": "true",
+			},
+			Body: `{"error": "Failed to process request"}`,
+		}, err
+	}
 
+	// Create response recorder
+	recorder := httptest.NewRecorder()
+
+	// Handle the request using our existing router
+	httpHandler.ServeHTTP(recorder, req)
+
+	// Convert HTTP response to API Gateway response
+	response := httpResponseToAPIGatewayResponse(recorder)
+	
+	return response, nil
+}
+
+// Convert API Gateway proxy request to standard HTTP request
+func apiGatewayRequestToHTTPRequest(request events.APIGatewayProxyRequest) (*http.Request, error) {
+	// Build URL with path and query parameters
+	path := request.Path
+	if request.PathParameters != nil {
+		// Replace path parameters (e.g., {id} -> actual value)
+		for key, value := range request.PathParameters {
+			path = strings.Replace(path, "{"+key+"}", value, -1)
+		}
+	}
+
+	// Add query parameters
+	queryValues := url.Values{}
+	for key, value := range request.QueryStringParameters {
+		queryValues.Set(key, value)
+	}
+	for key, values := range request.MultiValueQueryStringParameters {
+		for _, value := range values {
+			queryValues.Add(key, value)
+		}
+	}
+
+	fullURL := "https://example.com" + path
+	if len(queryValues) > 0 {
+		fullURL += "?" + queryValues.Encode()
+	}
+
+	// Create HTTP request
+	req, err := http.NewRequest(request.HTTPMethod, fullURL, strings.NewReader(request.Body))
+	if err != nil {
+		return nil, err
+	}
+
+	// Set headers
+	for key, value := range request.Headers {
+		req.Header.Set(key, value)
+	}
+	for key, values := range request.MultiValueHeaders {
+		for _, value := range values {
+			req.Header.Add(key, value)
+		}
+	}
+
+	// Set request context with API Gateway context
+	req = req.WithContext(context.WithValue(req.Context(), "apiGatewayContext", request.RequestContext))
+
+	return req, nil
+}
+
+// Convert HTTP response to API Gateway proxy response
+func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder) events.APIGatewayProxyResponse {
+	headers := make(map[string]string)
+	multiValueHeaders := make(map[string][]string)
+
+	for key, values := range recorder.Header() {
+		if len(values) == 1 {
+			headers[key] = values[0]
+		} else {
+			multiValueHeaders[key] = values
+		}
+	}
+
+	// Ensure CORS headers are always present
+	if headers["Access-Control-Allow-Origin"] == "" {
+		headers["Access-Control-Allow-Origin"] = "https://borrowhubb.live"
+	}
+	if headers["Access-Control-Allow-Methods"] == "" {
+		headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+	}
+	if headers["Access-Control-Allow-Headers"] == "" {
+		headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
+	}
+	if headers["Access-Control-Allow-Credentials"] == "" {
+		headers["Access-Control-Allow-Credentials"] = "true"
+	}
+
+	return events.APIGatewayProxyResponse{
+		StatusCode:        recorder.Code,
+		Headers:           headers,
+		MultiValueHeaders: multiValueHeaders,
+		Body:              recorder.Body.String(),
+	}
+}
+
+// setupRouter initializes and configures the HTTP router
+func setupRouter() {
 	router := mux.NewRouter()
 
 	// Enhanced CORS configuration
@@ -707,12 +824,21 @@ func main() {
 	}).Methods("OPTIONS", "GET", "POST", "PUT", "DELETE")
 
 	// Wrap router with CORS and authentication middleware
-	handler := c.Handler(authMiddleware(router))
+	httpHandler = c.Handler(authMiddleware(router))
+}
 
-	fmt.Println("BorrowHub backend server starting on :8080")
+func main() {
+	// Initialize sample data
+	initSampleData()
+
+	// Setup router
+	setupRouter()
+
+	// Start Lambda handler
+	fmt.Println("BorrowHub backend starting as Lambda function")
 	fmt.Println("Sample users:")
 	fmt.Println("- john@example.com / password123")
 	fmt.Println("- jane@example.com / password123")
 	
-	log.Fatal(http.ListenAndServe(":8080", handler))
+	lambda.Start(lambdaHandler)
 }
