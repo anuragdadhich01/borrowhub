@@ -17,6 +17,10 @@ import ContactPage from './pages/ContactPage';
 import CategoriesPage from './pages/CategoriesPage';
 import CategoryDetailPage from './pages/CategoryDetailPage';
 import NotFoundPage from './pages/NotFoundPage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
+import HelpCenterPage from './pages/HelpCenterPage';
+import SafetyPage from './pages/SafetyPage';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Box, Container } from '@mui/material';
@@ -49,6 +53,14 @@ function App() {
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/categories" element={<CategoriesPage />} />
               <Route path="/category/:category" element={<CategoryDetailPage />} />
+              
+              {/* Support Pages */}
+              <Route path="/help" element={<HelpCenterPage />} />
+              <Route path="/safety" element={<SafetyPage />} />
+              
+              {/* Legal Pages */}
+              <Route path="/terms" element={<TermsPage />} />
+              <Route path="/privacy" element={<PrivacyPage />} />
 
               {/* Item Routes */}
               <Route path="/item/:id" element={
