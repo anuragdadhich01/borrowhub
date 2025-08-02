@@ -1,6 +1,7 @@
 // frontend/src/pages/HomePage.jsx
 
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import axios, { switchToLocalhost, getApiStatus } from '../api/axios';
 import {
     Container,
@@ -24,6 +25,7 @@ import Footer from '../components/Footer';
 import NetworkStatus from '../components/NetworkStatus';
 
 const HomePage = () => {
+    const navigate = useNavigate();
     const [items, setItems] = useState([]);
     const [filteredItems, setFilteredItems] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -311,6 +313,18 @@ const HomePage = () => {
         applyFiltersClientSide(filters);
     };
 
+    const handleCategoryClick = (categoryName) => {
+        console.log('Category clicked:', categoryName);
+        // Navigate to category page or apply category filter
+        navigate(`/category/${categoryName.toLowerCase()}`);
+    };
+
+    const handleViewAll = () => {
+        console.log('View All clicked');
+        // Navigate to all items page or show all items
+        navigate('/items');
+    };
+
     const categories = [
         { name: 'Cameras', icon: '📸', count: 12 },
         { name: 'Electronics', icon: '💻', count: 8 },
@@ -481,7 +495,7 @@ const HomePage = () => {
             </Box>
 
             {/* Categories Section */}
-            <Container maxWidth="xl" sx={{ py: 8 }}>
+            <Container maxWidth="xl" sx={{ py: 8 }} data-testid="categories-section">
                 <Stack spacing={6}>
                     <Box textAlign="center">
                         <Typography variant="h3" sx={{ fontWeight: 700, mb: 2 }}>
@@ -497,6 +511,7 @@ const HomePage = () => {
                             <Grid item xs={6} sm={4} md={2} key={index}>
                                 <Paper
                                     elevation={0}
+                                    onClick={() => handleCategoryClick(category.name)}
                                     sx={{
                                         p: 3,
                                         textAlign: 'center',
@@ -554,6 +569,7 @@ const HomePage = () => {
                         <Button
                             variant="outlined"
                             size="large"
+                            onClick={handleViewAll}
                             sx={{
                                 borderRadius: 2,
                                 fontWeight: 600,
