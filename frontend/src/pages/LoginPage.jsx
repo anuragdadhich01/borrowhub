@@ -1,6 +1,6 @@
 // frontend/src/pages/LoginPage.jsx
 
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   Container,
   Box,
@@ -15,7 +15,6 @@ import {
 } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
-import axios from 'axios';
 import AuthContext from '../context/AuthContext';
 
 const LoginPage = () => {
@@ -23,40 +22,36 @@ const LoginPage = () => {
     email: '',
     password: '',
   });
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
-  const { dispatch } = useContext(AuthContext);
-
- // frontend/src/pages/LoginPage.jsx
-
-  // REPLACE THIS LINE
-  const API_ENDPOINT = 'https://psflzclkbl.execute-api.us-east-1.amazonaws.com/Prod/login';
+  const { login, loading, error, isAuthenticated, clearError } = useContext(AuthContext);
 
   const { email, password } = formData;
 
-  const onChange = (e) =>
+  useEffect(() => {
+    // Clear any previous errors when component mounts
+    clearError();
+  }, [clearError]);
+
+  useEffect(() => {
+    // Redirect if already authenticated
+    if (isAuthenticated) {
+      navigate('/');
+    }
+  }, [isAuthenticated, navigate]);
+
+  const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+    // Clear error when user starts typing
+    if (error) {
+      clearError();
+    }
+  };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    setError('');
-    setLoading(true);
-    try {
-      const res = await axios.post(API_ENDPOINT, formData);
-
-      const data = JSON.parse(res.data.body);
-      const token = data.token;
-
-      dispatch({ type: 'LOGIN_SUCCESS', payload: { token } });
-
+    const result = await login(email, password);
+    if (result.success) {
       navigate('/');
-    } catch (err) {
-      const errorMessage = err.response?.data?.body || 'Invalid credentials. Please try again.';
-      setError(errorMessage);
-      console.error(err.response || err);
-    } finally {
-      setLoading(false);
     }
   };
 

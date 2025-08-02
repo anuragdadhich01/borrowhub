@@ -9,17 +9,37 @@ const initialState = {
   isAuthenticated: false,
   user: null,
   token: localStorage.getItem('token'),
+  loading: false,
+  error: null,
 };
 
 const authReducer = (state, action) => {
   switch (action.type) {
+    case 'LOGIN_START':
+      return {
+        ...state,
+        loading: true,
+        error: null,
+      };
     case 'LOGIN_SUCCESS':
       localStorage.setItem('token', action.payload.token);
       return {
         ...state,
         isAuthenticated: true,
-        user: action.payload.user, // We'll add user data later
+        user: action.payload.user,
         token: action.payload.token,
+        loading: false,
+        error: null,
+      };
+    case 'LOGIN_FAILURE':
+      localStorage.removeItem('token');
+      return {
+        ...state,
+        isAuthenticated: false,
+        user: null,
+        token: null,
+        loading: false,
+        error: action.payload.error,
       };
     case 'LOGOUT':
       localStorage.removeItem('token');
@@ -28,6 +48,18 @@ const authReducer = (state, action) => {
         isAuthenticated: false,
         user: null,
         token: null,
+        loading: false,
+        error: null,
+      };
+    case 'UPDATE_USER':
+      return {
+        ...state,
+        user: action.payload.user,
+      };
+    case 'CLEAR_ERROR':
+      return {
+        ...state,
+        error: null,
       };
     default:
       return state;
@@ -39,23 +71,99 @@ export const AuthProvider = ({ children }) => {
   const [state, dispatch] = useReducer(authReducer, initialState);
 
   useEffect(() => {
-    // This effect will run when the app starts to check for a token
-    // and potentially load user data. For now, it just sets the auth header.
+    // Set up axios defaults
     if (state.token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
-      // Here you would typically also fetch the user's data
-      // For now, we'll assume login is successful if a token exists
-      // In a real app, you'd verify the token with the backend
-      if (!state.isAuthenticated) {
-        dispatch({ type: 'LOGIN_SUCCESS', payload: { token: state.token, user: null } });
+      
+      // Verify token and fetch user data if we have a token but no user
+      if (!state.user && !state.loading) {
+        fetchUserProfile();
       }
     } else {
       delete axios.defaults.headers.common['Authorization'];
     }
-  }, [state.token, state.isAuthenticated]);
+  }, [state.token]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await axios.get('/api/profile');
+      dispatch({ 
+        type: 'LOGIN_SUCCESS', 
+        payload: { 
+          token: state.token, 
+          user: response.data 
+        } 
+      });
+    } catch (error) {
+      console.error('Failed to fetch user profile:', error);
+      // If token is invalid, logout
+      if (error.response?.status === 401) {
+        dispatch({ type: 'LOGOUT' });
+      }
+    }
+  };
+
+  const login = async (email, password) => {
+    dispatch({ type: 'LOGIN_START' });
+    try {
+      const response = await axios.post('/login', { email, password });
+      const { token, user } = response.data;
+      
+      dispatch({ 
+        type: 'LOGIN_SUCCESS', 
+        payload: { token, user } 
+      });
+      
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'Login failed';
+      dispatch({ 
+        type: 'LOGIN_FAILURE', 
+        payload: { error: errorMessage } 
+      });
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  const register = async (userData) => {
+    dispatch({ type: 'LOGIN_START' });
+    try {
+      const response = await axios.post('/register', userData);
+      const { token, user } = response.data;
+      
+      dispatch({ 
+        type: 'LOGIN_SUCCESS', 
+        payload: { token, user } 
+      });
+      
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error.response?.data?.error || 'Registration failed';
+      dispatch({ 
+        type: 'LOGIN_FAILURE', 
+        payload: { error: errorMessage } 
+      });
+      return { success: false, error: errorMessage };
+    }
+  };
+
+  const logout = () => {
+    dispatch({ type: 'LOGOUT' });
+  };
+
+  const clearError = () => {
+    dispatch({ type: 'CLEAR_ERROR' });
+  };
 
   return (
-    <AuthContext.Provider value={{ ...state, dispatch }}>
+    <AuthContext.Provider value={{ 
+      ...state, 
+      dispatch, 
+      login, 
+      register, 
+      logout, 
+      clearError 
+    }}>
       {children}
     </AuthContext.Provider>
   );
