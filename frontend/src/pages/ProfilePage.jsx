@@ -11,10 +11,14 @@ import {
   Alert,
   CircularProgress,
   Avatar,
+  Tabs,
+  Tab,
+  Paper
 } from '@mui/material';
-import { Edit, Save, Cancel } from '@mui/icons-material';
+import { Edit, Save, Cancel, Person, Analytics } from '@mui/icons-material';
 import AuthContext from '../context/AuthContext';
 import axios from '../api/axios';
+import UserAnalyticsDashboard from '../components/UserAnalyticsDashboard';
 
 const ProfilePage = () => {
   const { user, isAuthenticated } = useContext(AuthContext);
@@ -22,6 +26,7 @@ const ProfilePage = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [tabValue, setTabValue] = useState(0);
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -102,41 +107,55 @@ const ProfilePage = () => {
   }
 
   return (
-    <Container maxWidth="md">
+    <Container maxWidth="lg">
       <Box sx={{ mt: 4 }}>
         <Typography variant="h4" component="h1" gutterBottom>
           My Profile
         </Typography>
 
-        <Card sx={{ mt: 3 }}>
-          <CardContent>
-            <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-              <Avatar 
-                sx={{ width: 80, height: 80, bgcolor: 'primary.main', mr: 2 }}
-              >
-                {formData.firstName?.charAt(0) || formData.email?.charAt(0) || 'U'}
-              </Avatar>
-              <Box>
-                <Typography variant="h5">
-                  {formData.firstName} {formData.lastName}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {formData.email}
-                </Typography>
+        {/* Tabs */}
+        <Paper sx={{ borderRadius: 2, mb: 3 }}>
+          <Tabs 
+            value={tabValue} 
+            onChange={(e, newValue) => setTabValue(newValue)}
+            sx={{ borderBottom: 1, borderColor: 'divider' }}
+          >
+            <Tab label="Profile Information" icon={<Person />} />
+            <Tab label="Analytics & Insights" icon={<Analytics />} />
+          </Tabs>
+        </Paper>
+
+        {/* Tab Content */}
+        {tabValue === 0 && (
+          <Card sx={{ mt: 3 }}>
+            <CardContent>
+              <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
+                <Avatar 
+                  sx={{ width: 80, height: 80, bgcolor: 'primary.main', mr: 2 }}
+                >
+                  {formData.firstName?.charAt(0) || formData.email?.charAt(0) || 'U'}
+                </Avatar>
+                <Box>
+                  <Typography variant="h5">
+                    {formData.firstName} {formData.lastName}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formData.email}
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
 
-            {error && (
-              <Alert severity="error" sx={{ mb: 2 }}>
-                {error}
-              </Alert>
-            )}
+              {error && (
+                <Alert severity="error" sx={{ mb: 2 }}>
+                  {error}
+                </Alert>
+              )}
 
-            {success && (
-              <Alert severity="success" sx={{ mb: 2 }}>
-                {success}
-              </Alert>
-            )}
+              {success && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  {success}
+                </Alert>
+              )}
 
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
@@ -240,6 +259,13 @@ const ProfilePage = () => {
             </Box>
           </CardContent>
         </Card>
+        )}
+
+        {/* Analytics Tab */}
+        {tabValue === 1 && (
+          <UserAnalyticsDashboard />
+        )}
+
       </Box>
     </Container>
   );
