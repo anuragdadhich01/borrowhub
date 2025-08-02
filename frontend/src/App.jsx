@@ -12,6 +12,7 @@ import PaymentPage from './pages/PaymentPage';
 import ProfilePage from './pages/ProfilePage';
 import BookingsPage from './pages/BookingsPage';
 import ItemManagementPage from './pages/ItemManagementPage';
+import MessagesPage from './pages/MessagesPage';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Box, Container } from '@mui/material';
@@ -87,6 +88,14 @@ function App() {
                     <Container component="main" sx={{ mt: 4, mb: 4 }}>
                       <BookingsPage />
                     </Container>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/messages"
+                element={
+                  <PrivateRoute>
+                    <MessagesPage />
                   </PrivateRoute>
                 }
               />

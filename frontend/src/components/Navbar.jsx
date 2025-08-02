@@ -21,7 +21,8 @@ import {
   ExitToApp, 
   Search,
   FavoriteBorder,
-  NotificationsNone 
+  NotificationsNone,
+  Message
 } from '@mui/icons-material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
@@ -108,6 +109,10 @@ const Navbar = () => {
       <MenuItem onClick={handleBookings} sx={{ py: 1.5 }}>
         <FavoriteBorder sx={{ mr: 2, color: 'text.secondary' }} />
         <Typography variant="body2">My Bookings</Typography>
+      </MenuItem>
+      <MenuItem onClick={() => { handleProfileMenuClose(); navigate('/messages'); }} sx={{ py: 1.5 }}>
+        <Message sx={{ mr: 2, color: 'text.secondary' }} />
+        <Typography variant="body2">Messages</Typography>
       </MenuItem>
       <Divider />
       <MenuItem onClick={handleLogout} sx={{ py: 1.5 }}>
@@ -237,6 +242,22 @@ const Navbar = () => {
                   }}
                 >
                   <NotificationsNone />
+                </IconButton>
+
+                {/* Messages Icon */}
+                <IconButton 
+                  color="inherit"
+                  component={RouterLink}
+                  to="/messages"
+                  sx={{ 
+                    color: 'text.secondary',
+                    '&:hover': { 
+                      backgroundColor: 'rgba(99, 102, 241, 0.08)',
+                      color: 'primary.main'
+                    }
+                  }}
+                >
+                  <Message />
                 </IconButton>
 
                 {/* List Item Button */}

@@ -36,6 +36,7 @@ import {
 import axios from '../api/axios';
 import AuthContext from '../context/AuthContext';
 import BookingCalendar from '../components/BookingCalendar';
+import { RatingsList } from '../components/RatingSystem';
 
 const ItemDetailsPage = () => {
   const { id } = useParams();
@@ -394,6 +395,14 @@ const ItemDetailsPage = () => {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Ratings Section */}
+      <Box sx={{ mt: 6 }}>
+        <RatingsList 
+          itemId={id}
+          allowRating={false}
+        />
+      </Box>
 
       {/* Notification Snackbar */}
       <Snackbar
