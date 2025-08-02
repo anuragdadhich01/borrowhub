@@ -166,53 +166,120 @@ const HomePage = () => {
     };
 
     const handleSearch = (searchTerm) => {
-        if (!searchTerm) {
-            setFilteredItems(items);
-            return;
-        }
-        const filtered = items.filter(item =>
-            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.description.toLowerCase().includes(searchTerm.toLowerCase())
-        );
-        setFilteredItems(filtered);
+        // Apply current filters along with search
+        const currentFilters = {
+            searchTerm: searchTerm,
+            // Preserve other active filters if any
+        };
+        applyFilters(currentFilters);
     };
 
     const handleFilter = (filters) => {
+        applyFilters(filters);
+    };
+
+    const applyFilters = (filters) => {
         let filtered = [...items];
 
         // Apply search term
-        if (filters.searchTerm) {
+        if (filters.searchTerm && filters.searchTerm.trim()) {
+            const searchLower = filters.searchTerm.toLowerCase();
             filtered = filtered.filter(item =>
-                item.name.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
-                item.description.toLowerCase().includes(filters.searchTerm.toLowerCase())
+                item.name?.toLowerCase().includes(searchLower) ||
+                item.description?.toLowerCase().includes(searchLower) ||
+                item.title?.toLowerCase().includes(searchLower) // Backward compatibility
             );
         }
 
-        // Apply price range
-        if (filters.priceRange) {
-            filtered = filtered.filter(item =>
-                item.dailyRate >= filters.priceRange[0] && item.dailyRate <= filters.priceRange[1]
-            );
+        // Apply category filter
+        if (filters.category && filters.category !== '') {
+            // Map category to item properties - this would be enhanced with actual category field in items
+            const categoryKeywords = {
+                'cameras': ['camera', 'dslr', 'photography', 'photo'],
+                'electronics': ['electronics', 'laptop', 'phone', 'computer', 'macbook', 'iphone'],
+                'tools': ['tool', 'drill', 'hammer', 'equipment'],
+                'sports': ['bike', 'bicycle', 'sports', 'fitness'],
+                'gaming': ['game', 'gaming', 'console', 'xbox', 'playstation'],
+                'music': ['music', 'audio', 'speaker', 'headphone']
+            };
+            
+            const keywords = categoryKeywords[filters.category] || [];
+            if (keywords.length > 0) {
+                filtered = filtered.filter(item => {
+                    const itemText = `${item.name} ${item.description}`.toLowerCase();
+                    return keywords.some(keyword => itemText.includes(keyword));
+                });
+            }
+        }
+
+        // Apply price range filter
+        if (filters.priceRange && filters.priceRange.length === 2) {
+            filtered = filtered.filter(item => {
+                const price = item.dailyRate || item.price || 0;
+                return price >= filters.priceRange[0] && price <= filters.priceRange[1];
+            });
         }
 
         // Apply availability filter
         if (filters.availability && filters.availability !== 'all') {
-            filtered = filtered.filter(item => item.status === filters.availability);
+            if (filters.availability === 'available') {
+                filtered = filtered.filter(item => item.available !== false);
+            } else if (filters.availability === 'coming-soon') {
+                filtered = filtered.filter(item => item.available === false);
+            }
+        }
+
+        // Apply location filter (basic text matching)
+        if (filters.location && filters.location.trim()) {
+            const locationLower = filters.location.toLowerCase();
+            // For now, we'll filter based on a simple location match
+            // In a real app, this would use proper location/distance filtering
+            filtered = filtered.filter(item => {
+                // Mock location data - in real app this would come from item data
+                return ['mumbai', 'delhi', 'bangalore', 'pune'].some(city => 
+                    city.includes(locationLower) || locationLower.includes(city)
+                );
+            });
+        }
+
+        // Apply minimum rating filter
+        if (filters.rating && filters.rating > 0) {
+            filtered = filtered.filter(item => {
+                // Mock rating - in real app this would come from reviews
+                const mockRating = 4.5; // All items have good rating for demo
+                return mockRating >= filters.rating;
+            });
+        }
+
+        // Apply verified owners only filter
+        if (filters.verifiedOnly) {
+            // All items are from verified owners in this demo
+            // In real app, this would filter based on owner verification status
         }
 
         // Apply sorting
         if (filters.sortBy) {
             switch (filters.sortBy) {
                 case 'price-low':
-                    filtered.sort((a, b) => a.dailyRate - b.dailyRate);
+                    filtered.sort((a, b) => (a.dailyRate || a.price || 0) - (b.dailyRate || b.price || 0));
                     break;
                 case 'price-high':
-                    filtered.sort((a, b) => b.dailyRate - a.dailyRate);
+                    filtered.sort((a, b) => (b.dailyRate || b.price || 0) - (a.dailyRate || a.price || 0));
                     break;
                 case 'newest':
-                    filtered.sort((a, b) => b.id - a.id);
+                    filtered.sort((a, b) => (parseInt(b.id) || 0) - (parseInt(a.id) || 0));
                     break;
+                case 'rating':
+                    // Sort by rating (mock data - all items have same rating for demo)
+                    filtered.sort((a, b) => 0); // No actual sorting since all have same rating
+                    break;
+                case 'distance':
+                    // Sort by distance (mock data)
+                    filtered.sort((a, b) => Math.random() - 0.5); // Random for demo
+                    break;
+                case 'relevance':
                 default:
+                    // Keep current order for relevance
                     break;
             }
         }
