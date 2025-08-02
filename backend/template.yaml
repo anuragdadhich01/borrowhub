@@ -7,9 +7,10 @@ Description: >
 Globals:
   Api:
     Cors:
-      AllowMethods: "'*'"
-      AllowHeaders: "'Content-Type,Authorization'"
-      AllowOrigin: "'*'"
+      AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
+      AllowHeaders: "'Content-Type,Authorization,Accept,X-Requested-With'"
+      AllowOrigin: "'https://borrowhubb.live'"
+      AllowCredentials: true
 
 Resources:
   BorrowHubbFunction:
