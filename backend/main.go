@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -202,9 +204,15 @@ func validateJWT(tokenString string) (*Claims, error) {
 
 // CORS helper function
 func setCORSHeaders(w http.ResponseWriter) {
-	w.Header().Set("Access-Control-Allow-Origin", "https://borrowhubb.live")
+	// Allow different origins based on environment
+	origin := "https://borrowhubb.live"
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") == "" {
+		// Development mode - allow localhost
+		origin = "*" // For development, allow all origins
+	}
+	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, Accept, X-Requested-With, Origin")
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
@@ -776,10 +784,11 @@ func setupRouter() {
 
 	// Enhanced CORS configuration
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"https://borrowhubb.live", "http://localhost:5173", "http://127.0.0.1:5173"}, // Production and development origins
+		AllowedOrigins:   []string{"https://borrowhubb.live", "http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000"}, // Production and development origins
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization", "Accept", "X-Requested-With"},
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "Accept", "X-Requested-With", "Origin"},
 		AllowCredentials: true,
+		Debug:           true, // Enable debug for development
 	})
 
 	// Authentication routes (no /api prefix to match frontend)
@@ -834,11 +843,22 @@ func main() {
 	// Setup router
 	setupRouter()
 
-	// Start Lambda handler
-	fmt.Println("BorrowHub backend starting as Lambda function")
-	fmt.Println("Sample users:")
-	fmt.Println("- john@example.com / password123")
-	fmt.Println("- jane@example.com / password123")
-	
-	lambda.Start(lambdaHandler)
+	// Check if running in Lambda environment
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
+		// Start Lambda handler
+		fmt.Println("BorrowHub backend starting as Lambda function")
+		fmt.Println("Sample users:")
+		fmt.Println("- john@example.com / password123")
+		fmt.Println("- jane@example.com / password123")
+		
+		lambda.Start(lambdaHandler)
+	} else {
+		// Start HTTP server for local development
+		fmt.Println("BorrowHub backend starting as HTTP server on :8080")
+		fmt.Println("Sample users:")
+		fmt.Println("- john@example.com / password123")
+		fmt.Println("- jane@example.com / password123")
+		
+		log.Fatal(http.ListenAndServe(":8080", httpHandler))
+	}
 }
