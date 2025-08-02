@@ -15,11 +15,20 @@ import (
 	"sync"
 	"time"
 
+	"borrowhub/config"
+	"borrowhub/database"
+	"borrowhub/database/seeds"
+
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
+	
+	// Database drivers
+	_ "github.com/lib/pq"
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 // Enhanced Item model with all required fields
@@ -147,6 +156,7 @@ type Database struct {
 }
 
 var (
+	// Keep existing in-memory database for backward compatibility
 	db        = &Database{
 		Users:     make(map[string]*User),
 		Items:     make(map[string]*Item),
@@ -156,9 +166,14 @@ var (
 		Messages:  make(map[string]*Message),
 		AdminLogs: make(map[string]*AdminLog),
 	}
-	jwtSecret = []byte("your-secret-key") // In production, use environment variable
-	counter   = 0
-	counterMu sync.Mutex
+	
+	// New persistent database
+	persistentDB database.Database
+	appConfig    *config.AppConfig
+	
+	jwtSecret   = []byte("your-secret-key") // Will be updated from config
+	counter     = 0
+	counterMu   sync.Mutex
 	httpHandler http.Handler // Global handler for Lambda
 )
 
@@ -168,6 +183,239 @@ func generateID() string {
 	defer counterMu.Unlock()
 	counter++
 	return strconv.Itoa(counter)
+}
+
+// Initialize application configuration and database
+func initializeApp() error {
+	var err error
+	
+	// Load configuration
+	appConfig, err = config.LoadConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
+	}
+	
+	// Update JWT secret from config
+	jwtSecret = []byte(appConfig.JWTSecret)
+	
+	// Initialize database based on configuration
+	switch appConfig.Database.Type {
+	case "postgres", "mysql", "sqlite":
+		persistentDB = database.NewSQLDatabase(&appConfig.Database)
+		
+		// Connect to database
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		
+		if err := persistentDB.Connect(ctx); err != nil {
+			log.Printf("Failed to connect to database: %v", err)
+			log.Println("Falling back to in-memory database")
+			persistentDB = nil
+		} else {
+			log.Printf("Connected to %s database successfully", appConfig.Database.Type)
+			
+			// Run migrations
+			if err := persistentDB.Migrate(ctx); err != nil {
+				log.Printf("Migration failed: %v", err)
+			} else {
+				log.Println("Database migrations completed")
+				
+				// Seed initial data in development
+				if appConfig.IsDevelopment() {
+					if err := seeds.SeedData(ctx, persistentDB); err != nil {
+						log.Printf("Seeding failed: %v", err)
+					} else {
+						log.Println("Database seeded with sample data")
+					}
+				}
+			}
+		}
+	default:
+		log.Println("Using in-memory database")
+	}
+	
+	return nil
+}
+
+// Enhanced admin dashboard with database integration
+func getEnhancedAdminDashboard(w http.ResponseWriter, r *http.Request) {
+	// If we have persistent database, use it for more accurate stats
+	if persistentDB != nil {
+		ctx := r.Context()
+		stats, err := persistentDB.GetDashboardStats(ctx)
+		if err != nil {
+			log.Printf("Failed to get dashboard stats from database: %v", err)
+			// Fall back to in-memory stats
+			getAdminDashboard(w, r)
+			return
+		}
+		
+		// Add database connection info
+		response := map[string]interface{}{
+			"stats": stats,
+			"database": map[string]interface{}{
+				"type":      appConfig.Database.Type,
+				"connected": true,
+				"host":      appConfig.Database.Host,
+				"port":      appConfig.Database.Port,
+				"name":      appConfig.Database.Database,
+			},
+			"server": map[string]interface{}{
+				"environment": appConfig.Environment,
+				"uptime":      time.Since(time.Now().Add(-time.Hour)).String(), // Placeholder
+			},
+		}
+		
+		respondWithJSON(w, http.StatusOK, response)
+		return
+	}
+	
+	// Fall back to original implementation
+	getAdminDashboard(w, r)
+}
+
+// Database management endpoints
+func getDatabaseStatus(w http.ResponseWriter, r *http.Request) {
+	if persistentDB == nil {
+		response := map[string]interface{}{
+			"type":      "in-memory",
+			"connected": true,
+			"message":   "Using in-memory database",
+		}
+		respondWithJSON(w, http.StatusOK, response)
+		return
+	}
+	
+	ctx := r.Context()
+	err := persistentDB.Ping(ctx)
+	
+	response := map[string]interface{}{
+		"type":      appConfig.Database.Type,
+		"connected": err == nil,
+		"host":      appConfig.Database.Host,
+		"port":      appConfig.Database.Port,
+		"database":  appConfig.Database.Database,
+	}
+	
+	if err != nil {
+		response["error"] = err.Error()
+	}
+	
+	respondWithJSON(w, http.StatusOK, response)
+}
+
+func getDatabaseMetrics(w http.ResponseWriter, r *http.Request) {
+	if persistentDB == nil {
+		respondWithError(w, http.StatusNotImplemented, "Database metrics not available for in-memory database")
+		return
+	}
+	
+	// Placeholder for database metrics
+	// In a real implementation, you'd query database-specific metrics
+	metrics := map[string]interface{}{
+		"type": appConfig.Database.Type,
+		"connection_pool": map[string]interface{}{
+			"max_open":     appConfig.Database.MaxOpenConns,
+			"max_idle":     appConfig.Database.MaxIdleConns,
+			"active":       "unknown", // Would need database-specific queries
+			"idle":         "unknown",
+		},
+		"performance": map[string]interface{}{
+			"queries_per_second": "unknown",
+			"avg_query_time":     "unknown",
+		},
+	}
+	
+	respondWithJSON(w, http.StatusOK, metrics)
+}
+
+// System settings management
+func getSystemSettings(w http.ResponseWriter, r *http.Request) {
+	if persistentDB == nil {
+		respondWithError(w, http.StatusNotImplemented, "System settings not available for in-memory database")
+		return
+	}
+	
+	ctx := r.Context()
+	settings, err := persistentDB.ListSystemSettings(ctx)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to fetch system settings")
+		return
+	}
+	
+	respondWithJSON(w, http.StatusOK, settings)
+}
+
+func updateSystemSetting(w http.ResponseWriter, r *http.Request) {
+	if persistentDB == nil {
+		respondWithError(w, http.StatusNotImplemented, "System settings not available for in-memory database")
+		return
+	}
+	
+	vars := mux.Vars(r)
+	settingKey := vars["key"]
+	
+	var request struct {
+		Value       string `json:"value"`
+		Type        string `json:"type"`
+		Description string `json:"description"`
+		Category    string `json:"category"`
+		IsPublic    bool   `json:"isPublic"`
+	}
+	
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	
+	setting := &database.SystemSetting{
+		ID:          generateID(),
+		Key:         settingKey,
+		Value:       request.Value,
+		Type:        request.Type,
+		Description: request.Description,
+		Category:    request.Category,
+		IsPublic:    request.IsPublic,
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+	}
+	
+	ctx := r.Context()
+	if err := persistentDB.SetSystemSetting(ctx, setting); err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Failed to update system setting")
+		return
+	}
+	
+	// Log admin action
+	adminUserID := r.Header.Get("X-User-ID")
+	createAdminLogEntry(ctx, adminUserID, "system_setting_update", "system", settingKey, 
+		fmt.Sprintf("Updated setting %s to %s", settingKey, request.Value))
+	
+	respondWithJSON(w, http.StatusOK, setting)
+}
+
+// Helper function to create admin log entries
+func createAdminLogEntry(ctx context.Context, adminUserID, action, targetType, targetID, details string) {
+	if persistentDB == nil {
+		// Fall back to in-memory logging
+		createAdminLog(adminUserID, action, targetType, targetID, details)
+		return
+	}
+	
+	log := &database.AdminLog{
+		ID:          generateID(),
+		AdminUserID: adminUserID,
+		Action:      action,
+		TargetType:  targetType,
+		TargetID:    targetID,
+		Details:     details,
+		CreatedAt:   time.Now(),
+	}
+	
+	if err := persistentDB.CreateAdminLog(ctx, log); err != nil {
+		// Fall back to in-memory if persistent fails
+		createAdminLog(adminUserID, action, targetType, targetID, details)
+	}
 }
 
 // Initialize some sample data
@@ -2187,7 +2435,8 @@ func setupRouter() {
 	adminRouter := router.PathPrefix("/api/admin").Subrouter()
 	adminRouter.Use(adminMiddleware)
 	
-	adminRouter.HandleFunc("/dashboard", getAdminDashboard).Methods("GET", "OPTIONS")
+	// Enhanced dashboard with database integration
+	adminRouter.HandleFunc("/dashboard", getEnhancedAdminDashboard).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/users", getAdminUsers).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/users/{id}/status", updateUserStatus).Methods("PUT", "OPTIONS")
 	adminRouter.HandleFunc("/items", getAdminItems).Methods("GET", "OPTIONS")
@@ -2195,6 +2444,14 @@ func setupRouter() {
 	adminRouter.HandleFunc("/bookings", getAdminBookings).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/analytics", getAdminAnalytics).Methods("GET", "OPTIONS")
 	adminRouter.HandleFunc("/logs", getAdminLogs).Methods("GET", "OPTIONS")
+	
+	// Database management endpoints
+	adminRouter.HandleFunc("/database/status", getDatabaseStatus).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/database/metrics", getDatabaseMetrics).Methods("GET", "OPTIONS")
+	
+	// System settings management
+	adminRouter.HandleFunc("/settings", getSystemSettings).Methods("GET", "OPTIONS")
+	adminRouter.HandleFunc("/settings/{key}", updateSystemSetting).Methods("PUT", "OPTIONS")
 
 	// Image upload
 	router.HandleFunc("/api/upload/image", uploadImage).Methods("POST", "OPTIONS")
@@ -2226,8 +2483,15 @@ func setupRouter() {
 }
 
 func main() {
-	// Initialize sample data
-	initSampleData()
+	// Initialize application configuration and database
+	if err := initializeApp(); err != nil {
+		log.Fatalf("Failed to initialize application: %v", err)
+	}
+	
+	// Initialize sample data (fallback for in-memory database)
+	if persistentDB == nil {
+		initSampleData()
+	}
 
 	// Setup router
 	setupRouter()
@@ -2236,6 +2500,7 @@ func main() {
 	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
 		// Start Lambda handler
 		fmt.Println("BorrowHub backend starting as Lambda function")
+		fmt.Printf("Database: %s\n", appConfig.Database.Type)
 		fmt.Println("Sample users:")
 		fmt.Println("- john@example.com / password123")
 		fmt.Println("- jane@example.com / password123")
@@ -2244,12 +2509,18 @@ func main() {
 		lambda.Start(lambdaHandler)
 	} else {
 		// Start HTTP server for local development
-		fmt.Println("BorrowHub backend starting as HTTP server on :8080")
+		fmt.Printf("BorrowHub backend starting as HTTP server on :%d\n", appConfig.Port)
+		fmt.Printf("Environment: %s\n", appConfig.Environment)
+		fmt.Printf("Database: %s\n", appConfig.Database.Type)
 		fmt.Println("Sample users:")
 		fmt.Println("- john@example.com / password123")
 		fmt.Println("- jane@example.com / password123")
 		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
 		
-		log.Fatal(http.ListenAndServe(":8080", httpHandler))
+		if persistentDB != nil {
+			defer persistentDB.Close()
+		}
+		
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", appConfig.Port), httpHandler))
 	}
 }
