@@ -11,6 +11,7 @@ import ItemDetailsPage from './pages/ItemDetailsPage';
 import PaymentPage from './pages/PaymentPage';
 import ProfilePage from './pages/ProfilePage';
 import BookingsPage from './pages/BookingsPage';
+import ItemManagementPage from './pages/ItemManagementPage';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import { Box, Container } from '@mui/material';
@@ -65,6 +66,16 @@ function App() {
                   <PrivateRoute>
                     <Container component="main" sx={{ mt: 4, mb: 4 }}>
                       <ProfilePage />
+                    </Container>
+                  </PrivateRoute>
+                }
+              />
+              <Route
+                path="/my-items"
+                element={
+                  <PrivateRoute>
+                    <Container component="main" sx={{ mt: 4, mb: 4 }}>
+                      <ItemManagementPage />
                     </Container>
                   </PrivateRoute>
                 }

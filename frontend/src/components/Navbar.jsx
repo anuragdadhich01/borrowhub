@@ -56,6 +56,11 @@ const Navbar = () => {
     navigate('/bookings');
   };
 
+  const handleMyItems = () => {
+    handleProfileMenuClose();
+    navigate('/my-items');
+  };
+
   const isMenuOpen = Boolean(anchorEl);
 
   const profileMenu = (
@@ -95,6 +100,10 @@ const Navbar = () => {
       <MenuItem onClick={handleProfile} sx={{ py: 1.5 }}>
         <AccountCircle sx={{ mr: 2, color: 'text.secondary' }} />
         <Typography variant="body2">Profile</Typography>
+      </MenuItem>
+      <MenuItem onClick={handleMyItems} sx={{ py: 1.5 }}>
+        <Add sx={{ mr: 2, color: 'text.secondary' }} />
+        <Typography variant="body2">My Items</Typography>
       </MenuItem>
       <MenuItem onClick={handleBookings} sx={{ py: 1.5 }}>
         <FavoriteBorder sx={{ mr: 2, color: 'text.secondary' }} />

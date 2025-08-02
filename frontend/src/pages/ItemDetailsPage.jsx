@@ -13,14 +13,15 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  TextField,
   Alert,
   CircularProgress,
   Divider,
   Stack,
   Container,
   Paper,
-  Snackbar
+  Snackbar,
+  Tabs,
+  Tab
 } from '@mui/material';
 import {
   CalendarToday,
@@ -29,10 +30,12 @@ import {
   Verified,
   LocationOn,
   AccessTime,
-  Person
+  Person,
+  Info
 } from '@mui/icons-material';
 import axios from '../api/axios';
 import AuthContext from '../context/AuthContext';
+import BookingCalendar from '../components/BookingCalendar';
 
 const ItemDetailsPage = () => {
   const { id } = useParams();
@@ -42,32 +45,21 @@ const ItemDetailsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [bookingDialog, setBookingDialog] = useState(false);
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
+  const [selectedDates, setSelectedDates] = useState(null);
   const [totalPrice, setTotalPrice] = useState(0);
   const [bookingLoading, setBookingLoading] = useState(false);
   const [notification, setNotification] = useState({ open: false, message: '', type: 'success' });
+  const [tabValue, setTabValue] = useState(0);
 
-  // Set default dates to today and tomorrow
-  useEffect(() => {
-    const today = new Date();
-    const tomorrow = new Date();
-    tomorrow.setDate(today.getDate() + 1);
-    
-    setStartDate(today.toISOString().split('T')[0]);
-    setEndDate(tomorrow.toISOString().split('T')[0]);
-  }, []);
-
-  // Calculate total price when dates change
-  useEffect(() => {
-    if (startDate && endDate && item) {
-      const start = new Date(startDate);
-      const end = new Date(endDate);
-      const diffTime = Math.abs(end - start);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      setTotalPrice(diffDays * item.dailyRate);
+  const handleDateRangeSelect = (dateRange) => {
+    setSelectedDates(dateRange);
+    if (dateRange && item) {
+      const days = Math.ceil((new Date(dateRange.endDate) - new Date(dateRange.startDate)) / (1000 * 60 * 60 * 24));
+      setTotalPrice(days * item.dailyRate);
+    } else {
+      setTotalPrice(0);
     }
-  }, [startDate, endDate, item]);
+  };
 
   useEffect(() => {
     const fetchItem = async () => {
@@ -99,28 +91,10 @@ const ItemDetailsPage = () => {
   };
 
   const handleBookingConfirm = async () => {
-    if (!startDate || !endDate) {
+    if (!selectedDates) {
       setNotification({
         open: true,
-        message: 'Please select both start and end dates.',
-        type: 'error'
-      });
-      return;
-    }
-
-    if (new Date(startDate) >= new Date(endDate)) {
-      setNotification({
-        open: true,
-        message: 'End date must be after start date.',
-        type: 'error'
-      });
-      return;
-    }
-
-    if (new Date(startDate) < new Date().setHours(0, 0, 0, 0)) {
-      setNotification({
-        open: true,
-        message: 'Start date cannot be in the past.',
+        message: 'Please select rental dates using the calendar.',
         type: 'error'
       });
       return;
@@ -128,8 +102,8 @@ const ItemDetailsPage = () => {
 
     const bookingDetails = {
       itemId: item.id,
-      startDate: new Date(startDate).toISOString(),
-      endDate: new Date(endDate).toISOString(),
+      startDate: selectedDates.startDate.toISOString(),
+      endDate: selectedDates.endDate.toISOString(),
       totalPrice: totalPrice,
     };
 
@@ -146,7 +120,13 @@ const ItemDetailsPage = () => {
       
       setBookingDialog(false);
       setTimeout(() => {
-        navigate(`/pay/${bookingId}`, { state: { bookingId } });
+        navigate(`/pay/${bookingId}`, { 
+          state: { 
+            bookingId,
+            booking: res.data,
+            item: item
+          }
+        });
       }, 1500);
     } catch (err) {
       console.error('Failed to create booking', err);
@@ -317,7 +297,7 @@ const ItemDetailsPage = () => {
       <Dialog
         open={bookingDialog}
         onClose={() => setBookingDialog(false)}
-        maxWidth="sm"
+        maxWidth="md"
         fullWidth
       >
         <DialogTitle>
@@ -327,59 +307,63 @@ const ItemDetailsPage = () => {
         </DialogTitle>
         <DialogContent>
           <Box sx={{ mt: 2 }}>
-            <Grid container spacing={3}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Start Date"
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                  inputProps={{ min: new Date().toISOString().split('T')[0] }}
-                />
-              </Grid>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="End Date"
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  InputLabelProps={{ shrink: true }}
-                  inputProps={{ min: startDate }}
-                />
-              </Grid>
-            </Grid>
+            <Tabs value={tabValue} onChange={(e, newValue) => setTabValue(newValue)} sx={{ mb: 3 }}>
+              <Tab label="Select Dates" icon={<CalendarToday />} />
+              <Tab label="Summary" icon={<Info />} disabled={!selectedDates} />
+            </Tabs>
 
-            <Paper elevation={0} sx={{ mt: 3, p: 3, backgroundColor: 'grey.50', borderRadius: 2 }}>
-              <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
-                Booking Summary
-              </Typography>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2">Daily Rate:</Typography>
-                <Typography variant="body2">₹{item.dailyRate}</Typography>
-              </Box>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                <Typography variant="body2">
-                  Duration: {startDate && endDate ? 
-                    Math.ceil((new Date(endDate) - new Date(startDate)) / (1000 * 60 * 60 * 24)) : 0} days
-                </Typography>
-              </Box>
-              <Divider sx={{ my: 2 }} />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                  Total Amount:
-                </Typography>
-                <Typography variant="h6" sx={{ fontWeight: 600, color: 'primary.main' }}>
-                  ₹{totalPrice}
-                </Typography>
-              </Box>
-            </Paper>
+            {tabValue === 0 && (
+              <BookingCalendar
+                itemId={item.id}
+                onDateRangeSelect={handleDateRangeSelect}
+                selectedStartDate={selectedDates?.startDate}
+                selectedEndDate={selectedDates?.endDate}
+              />
+            )}
 
-            <Alert severity="info" sx={{ mt: 2 }}>
-              You'll be redirected to payment after confirming this booking.
-            </Alert>
+            {tabValue === 1 && selectedDates && (
+              <Paper elevation={0} sx={{ p: 3, backgroundColor: 'grey.50', borderRadius: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 600, mb: 2 }}>
+                  Booking Summary
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2">Item:</Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{item.name}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2">Daily Rate:</Typography>
+                  <Typography variant="body2">₹{item.dailyRate}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2">Start Date:</Typography>
+                  <Typography variant="body2">{new Date(selectedDates.startDate).toLocaleDateString()}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2">End Date:</Typography>
+                  <Typography variant="body2">{new Date(selectedDates.endDate).toLocaleDateString()}</Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                  <Typography variant="body2">
+                    Duration: {Math.ceil((new Date(selectedDates.endDate) - new Date(selectedDates.startDate)) / (1000 * 60 * 60 * 24))} day(s)
+                  </Typography>
+                </Box>
+                <Divider sx={{ my: 2 }} />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                    Total Amount:
+                  </Typography>
+                  <Typography variant="h6" sx={{ fontWeight: 600, color: 'primary.main' }}>
+                    ₹{totalPrice}
+                  </Typography>
+                </Box>
+              </Paper>
+            )}
+
+            {selectedDates && (
+              <Alert severity="info" sx={{ mt: 2 }}>
+                You'll be redirected to payment after confirming this booking.
+              </Alert>
+            )}
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
@@ -389,14 +373,25 @@ const ItemDetailsPage = () => {
           >
             Cancel
           </Button>
-          <Button
-            variant="contained"
-            onClick={handleBookingConfirm}
-            disabled={bookingLoading}
-            sx={{ px: 4 }}
-          >
-            {bookingLoading ? <CircularProgress size={24} /> : 'Confirm Booking'}
-          </Button>
+          {tabValue === 0 && selectedDates && (
+            <Button
+              variant="outlined"
+              onClick={() => setTabValue(1)}
+              sx={{ px: 4 }}
+            >
+              Review Booking
+            </Button>
+          )}
+          {tabValue === 1 && (
+            <Button
+              variant="contained"
+              onClick={handleBookingConfirm}
+              disabled={bookingLoading || !selectedDates}
+              sx={{ px: 4 }}
+            >
+              {bookingLoading ? <CircularProgress size={24} /> : 'Confirm Booking'}
+            </Button>
+          )}
         </DialogActions>
       </Dialog>
 
