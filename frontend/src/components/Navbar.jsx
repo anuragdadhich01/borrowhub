@@ -40,6 +40,7 @@ import {
 } from '@mui/icons-material';
 import { Link as RouterLink, useNavigate } from 'react-router-dom';
 import AuthContext from '../context/AuthContext';
+import { DarkModeToggle } from '../components/ThemeProvider';
 
 const Navbar = () => {
   const { isAuthenticated, user, logout } = useContext(AuthContext);
@@ -433,6 +434,9 @@ const Navbar = () => {
               >
                 <Search />
               </IconButton>
+
+              {/* Dark Mode Toggle */}
+              <DarkModeToggle />
 
               {isAuthenticated ? (
                 <>

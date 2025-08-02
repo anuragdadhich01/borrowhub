@@ -14,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"regexp"
+	"unicode"
 
 	"borrowhub/config"
 	"borrowhub/database"
@@ -24,6 +26,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/time/rate"
 	
 	// Database drivers
 	_ "github.com/lib/pq"
@@ -136,11 +139,39 @@ type AvailabilityCalendar struct {
 	Price     float64 `json:"price,omitempty"`
 }
 
-// JWT Claims structure
+// Enhanced JWT Claims structure with refresh tokens
 type Claims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
+	UserID    string `json:"user_id"`
+	Email     string `json:"email"`
+	Role      string `json:"role"`
+	TokenType string `json:"token_type"` // "access" or "refresh"
 	jwt.RegisteredClaims
+}
+
+// Rate limiter structure
+type RateLimiter struct {
+	visitors map[string]*rate.Limiter
+	mu       sync.RWMutex
+}
+
+// Password validation result
+type PasswordValidation struct {
+	IsValid  bool     `json:"isValid"`
+	Errors   []string `json:"errors"`
+	Strength string   `json:"strength"` // "weak", "medium", "strong"
+	Score    int      `json:"score"`    // 0-100
+}
+
+// Security config
+type SecurityConfig struct {
+	MaxLoginAttempts    int           `json:"maxLoginAttempts"`
+	LockoutDuration     time.Duration `json:"lockoutDuration"`
+	PasswordMinLength   int           `json:"passwordMinLength"`
+	RequireSpecialChars bool          `json:"requireSpecialChars"`
+	RequireNumbers      bool          `json:"requireNumbers"`
+	RequireUppercase    bool          `json:"requireUppercase"`
+	JWTAccessDuration   time.Duration `json:"jwtAccessDuration"`
+	JWTRefreshDuration  time.Duration `json:"jwtRefreshDuration"`
 }
 
 // In-memory database
@@ -171,7 +202,21 @@ var (
 	persistentDB database.Database
 	appConfig    *config.AppConfig
 	
-	jwtSecret   = []byte("your-secret-key") // Will be updated from config
+	// Security components
+	jwtSecret      = []byte("your-secret-key") // Will be updated from config
+	jwtRefreshSecret = []byte("your-refresh-secret-key")
+	rateLimiter    = &RateLimiter{visitors: make(map[string]*rate.Limiter)}
+	securityConfig = &SecurityConfig{
+		MaxLoginAttempts:    5,
+		LockoutDuration:     15 * time.Minute,
+		PasswordMinLength:   8,
+		RequireSpecialChars: true,
+		RequireNumbers:      true,
+		RequireUppercase:    true,
+		JWTAccessDuration:   15 * time.Minute,
+		JWTRefreshDuration:  7 * 24 * time.Hour, // 7 days
+	}
+	
 	counter     = 0
 	counterMu   sync.Mutex
 	httpHandler http.Handler // Global handler for Lambda
@@ -183,6 +228,159 @@ func generateID() string {
 	defer counterMu.Unlock()
 	counter++
 	return strconv.Itoa(counter)
+}
+
+// Rate limiting functions
+func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	limiter, exists := rl.visitors[ip]
+	if !exists {
+		// Create a new rate limiter allowing 10 requests per minute
+		limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
+		rl.visitors[ip] = limiter
+	}
+
+	return limiter
+}
+
+func (rl *RateLimiter) cleanupOldEntries() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	// Cleanup old entries periodically
+	for ip, limiter := range rl.visitors {
+		// If limiter hasn't been used recently, remove it
+		if limiter.Tokens() == float64(limiter.Burst()) {
+			delete(rl.visitors, ip)
+		}
+	}
+}
+
+// Password validation function
+func validatePassword(password string) PasswordValidation {
+	validation := PasswordValidation{
+		IsValid: true,
+		Errors:  []string{},
+		Score:   0,
+	}
+
+	// Check minimum length
+	if len(password) < securityConfig.PasswordMinLength {
+		validation.IsValid = false
+		validation.Errors = append(validation.Errors, fmt.Sprintf("Password must be at least %d characters long", securityConfig.PasswordMinLength))
+	} else {
+		validation.Score += 20
+	}
+
+	// Check for uppercase letters
+	hasUpper := false
+	for _, char := range password {
+		if unicode.IsUpper(char) {
+			hasUpper = true
+			break
+		}
+	}
+	if securityConfig.RequireUppercase && !hasUpper {
+		validation.IsValid = false
+		validation.Errors = append(validation.Errors, "Password must contain at least one uppercase letter")
+	} else if hasUpper {
+		validation.Score += 20
+	}
+
+	// Check for numbers
+	hasNumber := false
+	for _, char := range password {
+		if unicode.IsDigit(char) {
+			hasNumber = true
+			break
+		}
+	}
+	if securityConfig.RequireNumbers && !hasNumber {
+		validation.IsValid = false
+		validation.Errors = append(validation.Errors, "Password must contain at least one number")
+	} else if hasNumber {
+		validation.Score += 20
+	}
+
+	// Check for special characters
+	specialChars := `!@#$%^&*()_+-=[]{}|;:,.<>?`
+	hasSpecial := false
+	for _, char := range password {
+		if strings.ContainsRune(specialChars, char) {
+			hasSpecial = true
+			break
+		}
+	}
+	if securityConfig.RequireSpecialChars && !hasSpecial {
+		validation.IsValid = false
+		validation.Errors = append(validation.Errors, "Password must contain at least one special character")
+	} else if hasSpecial {
+		validation.Score += 20
+	}
+
+	// Check for length bonus
+	if len(password) >= 12 {
+		validation.Score += 10
+	}
+	if len(password) >= 16 {
+		validation.Score += 10
+	}
+
+	// Determine strength
+	if validation.Score >= 80 {
+		validation.Strength = "strong"
+	} else if validation.Score >= 60 {
+		validation.Strength = "medium"
+	} else {
+		validation.Strength = "weak"
+	}
+
+	return validation
+}
+
+// Enhanced JWT functions with refresh tokens
+func generateJWTTokens(userID, email, role string) (accessToken, refreshToken string, err error) {
+	// Generate access token
+	accessClaims := &Claims{
+		UserID:    userID,
+		Email:     email,
+		Role:      role,
+		TokenType: "access",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(securityConfig.JWTAccessDuration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   userID,
+		},
+	}
+
+	accessTokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, accessClaims)
+	accessToken, err = accessTokenObj.SignedString(jwtSecret)
+	if err != nil {
+		return "", "", err
+	}
+
+	// Generate refresh token
+	refreshClaims := &Claims{
+		UserID:    userID,
+		Email:     email,
+		Role:      role,
+		TokenType: "refresh",
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(securityConfig.JWTRefreshDuration)),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Subject:   userID,
+		},
+	}
+
+	refreshTokenObj := jwt.NewWithClaims(jwt.SigningMethodHS256, refreshClaims)
+	refreshToken, err = refreshTokenObj.SignedString(jwtRefreshSecret)
+	if err != nil {
+		return "", "", err
+	}
+
+	return accessToken, refreshToken, nil
 }
 
 // Initialize application configuration and database
@@ -526,22 +724,25 @@ func initSampleData() {
 
 // Authentication helpers
 func generateJWT(userID, email string) (string, error) {
-	claims := &Claims{
-		UserID: userID,
-		Email:  email,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-		},
+	// Get user to determine role
+	var role string = "user"
+	db.mutex.RLock()
+	if user, exists := db.Users[userID]; exists {
+		role = user.Role
 	}
+	db.mutex.RUnlock()
 
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	accessToken, _, err := generateJWTTokens(userID, email, role)
+	return accessToken, err
 }
 
 func validateJWT(tokenString string) (*Claims, error) {
 	claims := &Claims{}
 	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		// Check if it's a refresh token
+		if claims.TokenType == "refresh" {
+			return jwtRefreshSecret, nil
+		}
 		return jwtSecret, nil
 	})
 
@@ -549,7 +750,60 @@ func validateJWT(tokenString string) (*Claims, error) {
 		return nil, err
 	}
 
+	// Check if token has expired
+	if claims.ExpiresAt != nil && claims.ExpiresAt.Before(time.Now()) {
+		return nil, fmt.Errorf("token has expired")
+	}
+
 	return claims, nil
+}
+
+// Rate limiting middleware
+func rateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Get client IP
+		clientIP := r.Header.Get("X-Forwarded-For")
+		if clientIP == "" {
+			clientIP = r.Header.Get("X-Real-IP")
+		}
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+
+		// Get rate limiter for this IP
+		limiter := rateLimiter.getLimiter(clientIP)
+
+		// Check if request is allowed
+		if !limiter.Allow() {
+			w.Header().Set("Retry-After", "60")
+			respondWithJSON(w, http.StatusTooManyRequests, map[string]string{
+				"error":   "Too many requests",
+				"message": "Rate limit exceeded. Please try again later.",
+			})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Security headers middleware
+func securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Security headers
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+		
+		// Only set HSTS in production with HTTPS
+		if r.Header.Get("X-Forwarded-Proto") == "https" {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
 
 // Custom CORS middleware for better control
@@ -658,6 +912,23 @@ func register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate email format
+	emailRegex := regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
+	if !emailRegex.MatchString(user.Email) {
+		respondWithError(w, http.StatusBadRequest, "Invalid email format")
+		return
+	}
+
+	// Validate password strength
+	passwordValidation := validatePassword(user.Password)
+	if !passwordValidation.IsValid {
+		respondWithJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"error":              "Password does not meet requirements",
+			"passwordValidation": passwordValidation,
+		})
+		return
+	}
+
 	db.mutex.Lock()
 	defer db.mutex.Unlock()
 
@@ -680,16 +951,18 @@ func register(w http.ResponseWriter, r *http.Request) {
 	user.ID = generateID()
 	user.Password = string(hashedPassword)
 	user.CreatedAt = time.Now()
+	user.Role = "user" // Default role
+	user.Status = "active"
 	if user.Username == "" {
 		user.Username = strings.Split(user.Email, "@")[0]
 	}
 
 	db.Users[user.ID] = &user
 
-	// Generate JWT token
-	token, err := generateJWT(user.ID, user.Email)
+	// Generate JWT tokens
+	accessToken, refreshToken, err := generateJWTTokens(user.ID, user.Email, user.Role)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error generating token")
+		respondWithError(w, http.StatusInternalServerError, "Error generating tokens")
 		return
 	}
 
@@ -698,8 +971,59 @@ func register(w http.ResponseWriter, r *http.Request) {
 	responseUser.Password = ""
 
 	respondWithJSON(w, http.StatusCreated, map[string]interface{}{
-		"token": token,
-		"user":  responseUser,
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+		"user":         responseUser,
+		"tokenType":    "Bearer",
+		"expiresIn":    int(securityConfig.JWTAccessDuration.Seconds()),
+	})
+}
+
+// Password validation endpoint
+func validatePasswordEndpoint(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		Password string `json:"password"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	validation := validatePassword(request.Password)
+	respondWithJSON(w, http.StatusOK, validation)
+}
+
+// Token refresh endpoint
+func refreshToken(w http.ResponseWriter, r *http.Request) {
+	var request struct {
+		RefreshToken string `json:"refreshToken"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Validate refresh token
+	claims, err := validateJWT(request.RefreshToken)
+	if err != nil || claims.TokenType != "refresh" {
+		respondWithError(w, http.StatusUnauthorized, "Invalid refresh token")
+		return
+	}
+
+	// Generate new access token
+	accessToken, newRefreshToken, err := generateJWTTokens(claims.UserID, claims.Email, claims.Role)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Error generating tokens")
+		return
+	}
+
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"accessToken":  accessToken,
+		"refreshToken": newRefreshToken,
+		"tokenType":    "Bearer",
+		"expiresIn":    int(securityConfig.JWTAccessDuration.Seconds()),
 	})
 }
 
@@ -711,6 +1035,12 @@ func login(w http.ResponseWriter, r *http.Request) {
 
 	if err := json.NewDecoder(r.Body).Decode(&credentials); err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	// Basic validation
+	if credentials.Email == "" || credentials.Password == "" {
+		respondWithError(w, http.StatusBadRequest, "Email and password are required")
 		return
 	}
 
@@ -731,16 +1061,22 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if user is active
+	if user.Status != "active" {
+		respondWithError(w, http.StatusForbidden, "Account is suspended or banned")
+		return
+	}
+
 	// Check password
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(credentials.Password)); err != nil {
 		respondWithError(w, http.StatusUnauthorized, "Invalid credentials")
 		return
 	}
 
-	// Generate JWT token
-	token, err := generateJWT(user.ID, user.Email)
+	// Generate JWT tokens
+	accessToken, refreshToken, err := generateJWTTokens(user.ID, user.Email, user.Role)
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, "Error generating token")
+		respondWithError(w, http.StatusInternalServerError, "Error generating tokens")
 		return
 	}
 
@@ -749,8 +1085,11 @@ func login(w http.ResponseWriter, r *http.Request) {
 	responseUser.Password = ""
 
 	respondWithJSON(w, http.StatusOK, map[string]interface{}{
-		"token": token,
-		"user":  responseUser,
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+		"user":         responseUser,
+		"tokenType":    "Bearer",
+		"expiresIn":    int(securityConfig.JWTAccessDuration.Seconds()),
 	})
 }
 
@@ -2391,6 +2730,10 @@ func setupRouter() {
 	// Authentication routes (no /api prefix to match frontend)
 	router.HandleFunc("/register", register).Methods("POST", "OPTIONS")
 	router.HandleFunc("/login", login).Methods("POST", "OPTIONS")
+	
+	// Security endpoints
+	router.HandleFunc("/api/auth/validate-password", validatePasswordEndpoint).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/auth/refresh-token", refreshToken).Methods("POST", "OPTIONS")
 
 	// Item routes (support both /items and /api/items patterns)
 	router.HandleFunc("/items", getItems).Methods("GET", "OPTIONS")
@@ -2478,8 +2821,16 @@ func setupRouter() {
 		respondWithError(w, http.StatusNotFound, "Endpoint not found")
 	}).Methods("OPTIONS", "GET", "POST", "PUT", "DELETE")
 
-	// Wrap router with custom CORS and authentication middleware
-	httpHandler = corsMiddleware(authMiddleware(router))
+	// Wrap router with security, rate limiting, CORS and authentication middleware
+	httpHandler = corsMiddleware(securityHeadersMiddleware(rateLimitMiddleware(authMiddleware(router))))
+	
+	// Start periodic cleanup of rate limiter
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			rateLimiter.cleanupOldEntries()
+		}
+	}()
 }
 
 func main() {

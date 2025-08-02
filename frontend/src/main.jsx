@@ -4,18 +4,15 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
-import { ThemeProvider } from '@mui/material/styles';
-import CssBaseline from '@mui/material/CssBaseline';
-import { AuthProvider } from './context/AuthContext'; // We've added this line
-import modernTheme from './theme/modernTheme';
+import { AuthProvider } from './context/AuthContext';
+import { CustomThemeProvider } from './components/ThemeProvider';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ThemeProvider theme={modernTheme}>
-      <CssBaseline />
-      <AuthProvider> {/* This wrapper makes login state available everywhere */}
+    <CustomThemeProvider>
+      <AuthProvider>
         <App />
       </AuthProvider>
-    </ThemeProvider>
+    </CustomThemeProvider>
   </React.StrictMode>
 );

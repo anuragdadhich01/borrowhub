@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import { NotificationProvider } from './components/NotificationSystem';
 import { Box, Container, Typography, CircularProgress } from '@mui/material';
 
 // Lazy load components for better performance
@@ -47,20 +48,21 @@ const PageLoader = () => (
 function App() {
   return (
     <ErrorBoundary>
-      <Router>
-        <Box sx={{ 
-          minHeight: '100vh', 
-          display: 'flex', 
-          flexDirection: 'column',
-          backgroundColor: 'background.default'
-        }}>
-          <Navbar />
-          <Box component="main" sx={{ 
-            flexGrow: 1,
-            pt: { xs: 0, sm: 0 }, // Remove top padding on mobile since navbar is smaller
+      <NotificationProvider>
+        <Router>
+          <Box sx={{ 
+            minHeight: '100vh', 
+            display: 'flex', 
+            flexDirection: 'column',
+            backgroundColor: 'background.default'
           }}>
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
+            <Navbar />
+            <Box component="main" sx={{ 
+              flexGrow: 1,
+              pt: { xs: 0, sm: 0 }, // Remove top padding on mobile since navbar is smaller
+            }}>
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
                 <Route path="/" element={<HomePage />} />
                 
                 {/* Authentication Routes */}
@@ -369,8 +371,9 @@ function App() {
           </Box>
         </Box>
       </Router>
-    </ErrorBoundary>
-  );
+    </NotificationProvider>
+  </ErrorBoundary>
+);
 }
 
 // Simple placeholder component for pages not yet implemented
