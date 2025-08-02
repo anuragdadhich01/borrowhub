@@ -1,6 +1,6 @@
 // frontend/src/pages/RegisterPage.jsx
 
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Container,
   Box,
@@ -26,17 +26,13 @@ const RegisterPage = () => {
     phone: '',
     address: '',
   });
+  const [localError, setLocalError] = useState('');
   const navigate = useNavigate();
-  const { register, loading, error, isAuthenticated, clearError } = useContext(AuthContext);
+  const { register, loading, isAuthenticated } = useContext(AuthContext);
 
   const { firstName, lastName, email, password, phone, address } = formData;
 
-  useEffect(() => {
-    // Clear any previous errors when component mounts
-    clearError();
-  }, [clearError]);
-
-  useEffect(() => {
+  React.useEffect(() => {
     // Redirect if already authenticated
     if (isAuthenticated) {
       navigate('/');
@@ -45,17 +41,23 @@ const RegisterPage = () => {
 
   const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
-    // Clear error when user starts typing
-    if (error) {
-      clearError();
+    // Clear local error when user starts typing
+    if (localError) {
+      setLocalError('');
     }
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    const result = await register(formData);
-    if (result.success) {
-      navigate('/');
+    setLocalError('');
+    
+    if (register) {
+      const result = await register(formData);
+      if (result.success) {
+        navigate('/');
+      } else {
+        setLocalError(result.error || 'Registration failed');
+      }
     }
   };
 
@@ -150,7 +152,7 @@ const RegisterPage = () => {
               />
             </Grid>
           </Grid>
-          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
+          {localError && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{localError}</Alert>}
           <Button
             type="submit"
             fullWidth

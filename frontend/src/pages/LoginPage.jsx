@@ -1,6 +1,6 @@
 // frontend/src/pages/LoginPage.jsx
 
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext } from 'react';
 import {
   Container,
   Box,
@@ -22,17 +22,13 @@ const LoginPage = () => {
     email: '',
     password: '',
   });
+  const [localError, setLocalError] = useState('');
   const navigate = useNavigate();
-  const { login, loading, error, isAuthenticated, clearError } = useContext(AuthContext);
+  const { login, loading, isAuthenticated } = useContext(AuthContext);
 
   const { email, password } = formData;
 
-  useEffect(() => {
-    // Clear any previous errors when component mounts
-    clearError();
-  }, [clearError]);
-
-  useEffect(() => {
+  React.useEffect(() => {
     // Redirect if already authenticated
     if (isAuthenticated) {
       navigate('/');
@@ -41,17 +37,23 @@ const LoginPage = () => {
 
   const onChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
-    // Clear error when user starts typing
-    if (error) {
-      clearError();
+    // Clear local error when user starts typing
+    if (localError) {
+      setLocalError('');
     }
   };
 
   const onSubmit = async (e) => {
     e.preventDefault();
-    const result = await login(email, password);
-    if (result.success) {
-      navigate('/');
+    setLocalError('');
+    
+    if (login) {
+      const result = await login(email, password);
+      if (result.success) {
+        navigate('/');
+      } else {
+        setLocalError(result.error || 'Login failed');
+      }
     }
   };
 
@@ -96,7 +98,7 @@ const LoginPage = () => {
             value={password}
             onChange={onChange}
           />
-          {error && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{error}</Alert>}
+          {localError && <Alert severity="error" sx={{ mt: 2, width: '100%' }}>{localError}</Alert>}
           <Button
             type="submit"
             fullWidth

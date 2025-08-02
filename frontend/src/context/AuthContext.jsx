@@ -6,7 +6,7 @@ const AuthContext = createContext();
 
 // 2. Define the initial state and the reducer function
 const initialState = {
-  isAuthenticated: false,
+  isAuthenticated: !!localStorage.getItem('token'),
   user: null,
   token: localStorage.getItem('token'),
   loading: false,
@@ -74,34 +74,10 @@ export const AuthProvider = ({ children }) => {
     // Set up axios defaults
     if (state.token) {
       axios.defaults.headers.common['Authorization'] = `Bearer ${state.token}`;
-      
-      // Verify token and fetch user data if we have a token but no user
-      if (!state.user && !state.loading) {
-        fetchUserProfile();
-      }
     } else {
       delete axios.defaults.headers.common['Authorization'];
     }
   }, [state.token]);
-
-  const fetchUserProfile = async () => {
-    try {
-      const response = await axios.get('/api/profile');
-      dispatch({ 
-        type: 'LOGIN_SUCCESS', 
-        payload: { 
-          token: state.token, 
-          user: response.data 
-        } 
-      });
-    } catch (error) {
-      console.error('Failed to fetch user profile:', error);
-      // If token is invalid, logout
-      if (error.response?.status === 401) {
-        dispatch({ type: 'LOGOUT' });
-      }
-    }
-  };
 
   const login = async (email, password) => {
     dispatch({ type: 'LOGIN_START' });
@@ -161,8 +137,7 @@ export const AuthProvider = ({ children }) => {
       dispatch, 
       login, 
       register, 
-      logout, 
-      clearError 
+      logout
     }}>
       {children}
     </AuthContext.Provider>
