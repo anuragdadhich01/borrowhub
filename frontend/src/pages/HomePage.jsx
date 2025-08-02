@@ -17,12 +17,17 @@ import {
 import { TrendingUp, Category, Star, ShoppingBag } from '@mui/icons-material';
 import HeroSection from '../components/HeroSection';
 import ModernItemCard from '../components/ModernItemCard';
+import SearchAndFilter from '../components/SearchAndFilter';
+import TestimonialsSection from '../components/TestimonialsSection';
+import Footer from '../components/Footer';
 
 const HomePage = () => {
     const [items, setItems] = useState([]);
+    const [filteredItems, setFilteredItems] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
     const [wishlistedItems, setWishlistedItems] = useState(new Set());
+    const [showFilters, setShowFilters] = useState(false);
 
     // Mock data for when API is not available
     const mockItems = [
@@ -82,11 +87,13 @@ const HomePage = () => {
                 setLoading(true);
                 const res = await axios.get('/api/items');
                 setItems(res.data || []);
+                setFilteredItems(res.data || []);
                 setError(null);
             } catch (err) {
                 console.error("Error fetching items:", err);
                 // Use mock data when API fails
                 setItems(mockItems);
+                setFilteredItems(mockItems);
                 setError(null);
             } finally {
                 setLoading(false);
@@ -106,6 +113,61 @@ const HomePage = () => {
             }
             return newSet;
         });
+    };
+
+    const handleSearch = (searchTerm) => {
+        if (!searchTerm) {
+            setFilteredItems(items);
+            return;
+        }
+        const filtered = items.filter(item =>
+            item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.description.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+        setFilteredItems(filtered);
+    };
+
+    const handleFilter = (filters) => {
+        let filtered = [...items];
+
+        // Apply search term
+        if (filters.searchTerm) {
+            filtered = filtered.filter(item =>
+                item.name.toLowerCase().includes(filters.searchTerm.toLowerCase()) ||
+                item.description.toLowerCase().includes(filters.searchTerm.toLowerCase())
+            );
+        }
+
+        // Apply price range
+        if (filters.priceRange) {
+            filtered = filtered.filter(item =>
+                item.dailyRate >= filters.priceRange[0] && item.dailyRate <= filters.priceRange[1]
+            );
+        }
+
+        // Apply availability filter
+        if (filters.availability && filters.availability !== 'all') {
+            filtered = filtered.filter(item => item.status === filters.availability);
+        }
+
+        // Apply sorting
+        if (filters.sortBy) {
+            switch (filters.sortBy) {
+                case 'price-low':
+                    filtered.sort((a, b) => a.dailyRate - b.dailyRate);
+                    break;
+                case 'price-high':
+                    filtered.sort((a, b) => b.dailyRate - a.dailyRate);
+                    break;
+                case 'newest':
+                    filtered.sort((a, b) => b.id - a.id);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        setFilteredItems(filtered);
     };
 
     const categories = [
@@ -128,11 +190,18 @@ const HomePage = () => {
         return (
             <>
                 <HeroSection />
+                <SearchAndFilter 
+                    onSearch={handleSearch}
+                    onFilter={handleFilter}
+                    isOpen={showFilters}
+                    onToggle={() => setShowFilters(!showFilters)}
+                />
                 <Container maxWidth="xl" sx={{ py: 8 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
                         <CircularProgress size={60} />
                     </Box>
                 </Container>
+                <Footer />
             </>
         );
     }
@@ -141,11 +210,18 @@ const HomePage = () => {
         return (
             <>
                 <HeroSection />
+                <SearchAndFilter 
+                    onSearch={handleSearch}
+                    onFilter={handleFilter}
+                    isOpen={showFilters}
+                    onToggle={() => setShowFilters(!showFilters)}
+                />
                 <Container maxWidth="xl" sx={{ py: 8 }}>
                     <Alert severity="error" sx={{ mt: 4 }}>
                         {error}
                     </Alert>
                 </Container>
+                <Footer />
             </>
         );
     }
@@ -154,6 +230,14 @@ const HomePage = () => {
         <Box sx={{ width: '100%' }}>
             {/* Hero Section */}
             <HeroSection />
+
+            {/* Search and Filter */}
+            <SearchAndFilter 
+                onSearch={handleSearch}
+                onFilter={handleFilter}
+                isOpen={showFilters}
+                onToggle={() => setShowFilters(!showFilters)}
+            />
 
             {/* Stats Section */}
             <Box sx={{ backgroundColor: 'background.paper', py: 6, borderBottom: '1px solid', borderColor: 'divider' }}>
@@ -257,7 +341,7 @@ const HomePage = () => {
                                 Featured Items
                             </Typography>
                             <Typography variant="h6" color="text.secondary">
-                                Most popular items in your area
+                                {filteredItems.length > 0 ? `${filteredItems.length} items found` : 'Most popular items in your area'}
                             </Typography>
                         </Box>
                         <Button
@@ -274,7 +358,7 @@ const HomePage = () => {
                     </Box>
 
                     <Grid container spacing={4}>
-                        {items.length > 0 ? items.map((item) => (
+                        {filteredItems.length > 0 ? filteredItems.map((item) => (
                             <Grid item key={item.id} xs={12} sm={6} lg={4}>
                                 <ModernItemCard
                                     item={item}
@@ -293,17 +377,21 @@ const HomePage = () => {
                                     }}
                                 >
                                     <Typography variant="h5" sx={{ fontWeight: 600, mb: 2 }}>
-                                        No items available yet
+                                        No items found
                                     </Typography>
                                     <Typography variant="body1" color="text.secondary" sx={{ mb: 4 }}>
-                                        Be the first to list an item and start earning!
+                                        Try adjusting your search or filters to find what you're looking for.
                                     </Typography>
                                     <Button
                                         variant="contained"
                                         size="large"
+                                        onClick={() => {
+                                            handleSearch('');
+                                            handleFilter({});
+                                        }}
                                         sx={{ borderRadius: 2, fontWeight: 600, px: 4 }}
                                     >
-                                        List Your First Item
+                                        Clear Filters
                                     </Button>
                                 </Paper>
                             </Grid>
@@ -311,6 +399,12 @@ const HomePage = () => {
                     </Grid>
                 </Stack>
             </Container>
+
+            {/* Testimonials Section */}
+            <TestimonialsSection />
+
+            {/* Footer */}
+            <Footer />
         </Box>
     );
 };
