@@ -12,7 +12,7 @@ import {
   Divider,
   Grid,
 } from '@mui/material';
-import axios from 'axios';
+import axios from '../api/axios';
 import AuthContext from '../context/AuthContext';
 
 const PaymentPage = () => {

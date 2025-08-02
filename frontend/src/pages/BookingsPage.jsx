@@ -16,7 +16,7 @@ import {
   DialogActions,
 } from '@mui/material';
 import { CalendarToday, AttachMoney } from '@mui/icons-material';
-import axios from 'axios';
+import axios from '../api/axios';
 import AuthContext from '../context/AuthContext';
 
 const BookingsPage = () => {
