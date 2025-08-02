@@ -770,10 +770,8 @@ func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder) event
 	}
 }
 
-func main() {
-	// Initialize sample data
-	initSampleData()
-
+// setupRouter initializes and configures the HTTP router
+func setupRouter() {
 	router := mux.NewRouter()
 
 	// Enhanced CORS configuration
@@ -827,6 +825,14 @@ func main() {
 
 	// Wrap router with CORS and authentication middleware
 	httpHandler = c.Handler(authMiddleware(router))
+}
+
+func main() {
+	// Initialize sample data
+	initSampleData()
+
+	// Setup router
+	setupRouter()
 
 	// Start Lambda handler
 	fmt.Println("BorrowHub backend starting as Lambda function")
