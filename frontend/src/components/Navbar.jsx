@@ -63,6 +63,48 @@ const Navbar = () => {
     navigate('/my-items');
   };
 
+  const handleNotifications = () => {
+    // TODO: Implement notification functionality
+    console.log('Notifications clicked');
+    // For now, navigate to messages or show notification dropdown
+    navigate('/messages');
+  };
+
+  const handleSearch = () => {
+    // Toggle search functionality or navigate to search page
+    console.log('Search clicked');
+    // Focus on search input if it exists, or navigate to search
+    const searchInput = document.querySelector('input[placeholder*="Search"]');
+    if (searchInput) {
+      searchInput.focus();
+    } else {
+      // Navigate to search page or scroll to search section
+      window.scrollTo({ top: 300, behavior: 'smooth' });
+    }
+  };
+
+  const handleCategories = () => {
+    console.log('Categories clicked');
+    // Scroll to categories section on homepage or navigate to categories page
+    if (window.location.pathname === '/') {
+      // Scroll to categories section
+      const categoriesSection = document.querySelector('[data-testid="categories-section"]');
+      if (categoriesSection) {
+        categoriesSection.scrollIntoView({ behavior: 'smooth' });
+      } else {
+        // Fallback - scroll to approximate location
+        window.scrollTo({ top: 800, behavior: 'smooth' });
+      }
+    } else {
+      // Navigate to home and then scroll to categories
+      navigate('/', { state: { scrollToCategories: true } });
+    }
+  };
+
+  const handleHowItWorks = () => {
+    navigate('/how-it-works');
+  };
+
   const isMenuOpen = Boolean(anchorEl);
 
   const profileMenu = (
@@ -198,6 +240,7 @@ const Navbar = () => {
             </Button>
             <Button 
               color="inherit"
+              onClick={handleCategories}
               sx={{ 
                 color: 'text.primary',
                 fontWeight: 500,
@@ -210,6 +253,7 @@ const Navbar = () => {
             </Button>
             <Button 
               color="inherit"
+              onClick={handleHowItWorks}
               sx={{ 
                 color: 'text.primary',
                 fontWeight: 500,
@@ -227,6 +271,7 @@ const Navbar = () => {
             {/* Search Icon */}
             <IconButton 
               color="inherit" 
+              onClick={handleSearch}
               sx={{ 
                 color: 'text.secondary',
                 '&:hover': { 
@@ -243,6 +288,7 @@ const Navbar = () => {
                 {/* Notification Icon */}
                 <IconButton 
                   color="inherit" 
+                  onClick={handleNotifications}
                   sx={{ 
                     color: 'text.secondary',
                     '&:hover': { 
