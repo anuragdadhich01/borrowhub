@@ -3180,7 +3180,11 @@ func enhancedHealthCheck(w http.ResponseWriter, r *http.Request) {
 			health["database"] = map[string]string{"status": "healthy"}
 		}
 	} else {
-		health["database"] = map[string]string{"status": "in-memory"}
+		health["database"] = map[string]interface{}{
+			"status": "disconnected",
+			"error":  "Database not initialized",
+		}
+		health["status"] = "degraded"
 	}
 	
 	// Memory usage
