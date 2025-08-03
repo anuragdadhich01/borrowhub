@@ -726,11 +726,21 @@ func initSampleData() {
 func generateJWT(userID, email string) (string, error) {
 	// Get user to determine role
 	var role string = "user"
-	db.mutex.RLock()
-	if user, exists := db.Users[userID]; exists {
-		role = user.Role
+	
+	// Try persistent database first
+	if persistentDB != nil {
+		ctx := context.Background()
+		if user, err := persistentDB.GetUser(ctx, userID); err == nil && user != nil {
+			role = user.Role
+		}
+	} else {
+		// Fall back to in-memory database
+		db.mutex.RLock()
+		if user, exists := db.Users[userID]; exists {
+			role = user.Role
+		}
+		db.mutex.RUnlock()
 	}
-	db.mutex.RUnlock()
 
 	accessToken, _, err := generateJWTTokens(userID, email, role)
 	return accessToken, err
@@ -1044,15 +1054,36 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db.mutex.RLock()
-	defer db.mutex.RUnlock()
-
-	// Find user by email
+	// Find user by email - try persistent database first
 	var user *User
-	for _, u := range db.Users {
-		if u.Email == credentials.Email {
-			user = u
-			break
+	if persistentDB != nil {
+		ctx := r.Context()
+		if dbUser, err := persistentDB.GetUserByEmail(ctx, credentials.Email); err == nil && dbUser != nil {
+			// Convert database user to internal user type
+			user = &User{
+				ID:        dbUser.ID,
+				Username:  dbUser.Username,
+				Email:     dbUser.Email,
+				Password:  dbUser.Password, // password_hash from database
+				FirstName: dbUser.FirstName,
+				LastName:  dbUser.LastName,
+				Phone:     dbUser.Phone,
+				Address:   dbUser.Address,
+				Role:      dbUser.Role,
+				Status:    dbUser.Status,
+				CreatedAt: dbUser.CreatedAt,
+			}
+		}
+	} else {
+		// Fall back to in-memory database
+		db.mutex.RLock()
+		defer db.mutex.RUnlock()
+
+		for _, u := range db.Users {
+			if u.Email == credentials.Email {
+				user = u
+				break
+			}
 		}
 	}
 
@@ -2152,11 +2183,39 @@ func adminMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		db.mutex.RLock()
-		user, exists := db.Users[userID]
-		db.mutex.RUnlock()
+		// Check user role - try persistent database first
+		var user *User
+		if persistentDB != nil {
+			ctx := r.Context()
+			if dbUser, err := persistentDB.GetUser(ctx, userID); err == nil && dbUser != nil {
+				// Convert database user to internal user type
+				user = &User{
+					ID:        dbUser.ID,
+					Username:  dbUser.Username,
+					Email:     dbUser.Email,
+					Password:  dbUser.Password,
+					FirstName: dbUser.FirstName,
+					LastName:  dbUser.LastName,
+					Phone:     dbUser.Phone,
+					Address:   dbUser.Address,
+					Role:      dbUser.Role,
+					Status:    dbUser.Status,
+					CreatedAt: dbUser.CreatedAt,
+				}
+			}
+		} else {
+			// Fall back to in-memory database
+			db.mutex.RLock()
+			var exists bool
+			user, exists = db.Users[userID]
+			db.mutex.RUnlock()
+			
+			if !exists {
+				user = nil
+			}
+		}
 
-		if !exists {
+		if user == nil {
 			respondWithError(w, http.StatusUnauthorized, "User not found")
 			return
 		}
