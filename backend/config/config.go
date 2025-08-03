@@ -7,9 +7,8 @@ import (
 	"strings"
 )
 
-// DatabaseConfig holds database configuration
+// DatabaseConfig holds PostgreSQL database configuration
 type DatabaseConfig struct {
-	Type     string // "postgres", "mysql", "sqlite"
 	Host     string
 	Port     int
 	Database string
@@ -21,9 +20,6 @@ type DatabaseConfig struct {
 	MaxOpenConns    int
 	MaxIdleConns    int
 	ConnMaxLifetime int // seconds
-	
-	// SQLite specific
-	SQLitePath string
 }
 
 // AppConfig holds all application configuration
@@ -83,14 +79,12 @@ func LoadConfig() (*AppConfig, error) {
 		
 		// Database defaults
 		Database: DatabaseConfig{
-			Type:            getEnv("DB_TYPE", "sqlite"),
 			Host:            getEnv("DB_HOST", "localhost"),
 			Port:            getEnvInt("DB_PORT", 5432),
 			Database:        getEnv("DB_NAME", "borrowhub"),
-			Username:        getEnv("DB_USER", ""),
+			Username:        getEnv("DB_USER", "borrowhub"),
 			Password:        getEnv("DB_PASSWORD", ""),
 			SSLMode:         getEnv("DB_SSLMODE", "disable"),
-			SQLitePath:      getEnv("DB_SQLITE_PATH", "./borrowhub.db"),
 			MaxOpenConns:    getEnvInt("DB_MAX_OPEN_CONNS", 25),
 			MaxIdleConns:    getEnvInt("DB_MAX_IDLE_CONNS", 5),
 			ConnMaxLifetime: getEnvInt("DB_CONN_MAX_LIFETIME", 300),
@@ -138,7 +132,7 @@ func LoadConfig() (*AppConfig, error) {
 		if config.JWTSecret == "your-secret-key-change-in-production" {
 			return nil, fmt.Errorf("JWT_SECRET must be set in production")
 		}
-		if config.Database.Type != "sqlite" && config.Database.Password == "" {
+		if config.Database.Password == "" {
 			return nil, fmt.Errorf("database password is required in production")
 		}
 	}
@@ -146,20 +140,10 @@ func LoadConfig() (*AppConfig, error) {
 	return config, nil
 }
 
-// GetDSN returns the database connection string
+// GetDSN returns the PostgreSQL database connection string
 func (c *DatabaseConfig) GetDSN() string {
-	switch c.Type {
-	case "postgres":
-		return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
-			c.Host, c.Port, c.Username, c.Password, c.Database, c.SSLMode)
-	case "mysql":
-		return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
-			c.Username, c.Password, c.Host, c.Port, c.Database)
-	case "sqlite":
-		return c.SQLitePath
-	default:
-		return ""
-	}
+	return fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=%s",
+		c.Host, c.Port, c.Username, c.Password, c.Database, c.SSLMode)
 }
 
 // IsDevelopment returns true if running in development mode

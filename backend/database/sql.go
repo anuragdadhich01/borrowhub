@@ -9,39 +9,30 @@ import (
 	"borrowhub/config"
 	
 	_ "github.com/lib/pq"           // PostgreSQL driver
-	_ "github.com/go-sql-driver/mysql" // MySQL driver  
-	_ "github.com/mattn/go-sqlite3"  // SQLite driver
 )
 
-// SQLDatabase implements the Database interface using SQL databases
-type SQLDatabase struct {
+// PostgreSQLDatabase implements the Database interface using PostgreSQL
+type PostgreSQLDatabase struct {
 	db     *sql.DB
-	dbType string
 	config *config.DatabaseConfig
 }
 
-// NewSQLDatabase creates a new SQL database instance
-func NewSQLDatabase(cfg *config.DatabaseConfig) *SQLDatabase {
-	return &SQLDatabase{
+// NewPostgreSQLDatabase creates a new PostgreSQL database instance
+func NewPostgreSQLDatabase(cfg *config.DatabaseConfig) *PostgreSQLDatabase {
+	return &PostgreSQLDatabase{
 		config: cfg,
-		dbType: cfg.Type,
 	}
 }
 
-// Connect establishes database connection
-func (d *SQLDatabase) Connect(ctx context.Context) error {
+// Connect establishes PostgreSQL database connection
+func (d *PostgreSQLDatabase) Connect(ctx context.Context) error {
 	dsn := d.config.GetDSN()
 	if dsn == "" {
 		return fmt.Errorf("invalid database configuration")
 	}
 
 	var err error
-	driverName := d.dbType
-	if d.dbType == "sqlite" {
-		driverName = "sqlite3"
-	}
-	
-	d.db, err = sql.Open(driverName, dsn)
+	d.db, err = sql.Open("postgres", dsn)
 	if err != nil {
 		return fmt.Errorf("failed to open database connection: %w", err)
 	}
@@ -60,7 +51,7 @@ func (d *SQLDatabase) Connect(ctx context.Context) error {
 }
 
 // Close closes the database connection
-func (d *SQLDatabase) Close() error {
+func (d *PostgreSQLDatabase) Close() error {
 	if d.db != nil {
 		return d.db.Close()
 	}
@@ -68,44 +59,24 @@ func (d *SQLDatabase) Close() error {
 }
 
 // Ping tests the database connection
-func (d *SQLDatabase) Ping(ctx context.Context) error {
+func (d *PostgreSQLDatabase) Ping(ctx context.Context) error {
 	if d.db == nil {
 		return fmt.Errorf("database not connected")
 	}
 	return d.db.PingContext(ctx)
 }
 
-// Migrate runs database migrations
-func (d *SQLDatabase) Migrate(ctx context.Context) error {
+// Migrate runs PostgreSQL database migrations
+func (d *PostgreSQLDatabase) Migrate(ctx context.Context) error {
 	// First, create migrations table if it doesn't exist
 	createMigrationTable := `
 		CREATE TABLE IF NOT EXISTS migrations (
-			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			id SERIAL PRIMARY KEY,
 			version INTEGER NOT NULL UNIQUE,
 			name VARCHAR(255) NOT NULL,
 			applied BOOLEAN NOT NULL DEFAULT FALSE,
 			applied_at TIMESTAMP
 		)`
-	
-	if d.dbType == "postgres" {
-		createMigrationTable = `
-			CREATE TABLE IF NOT EXISTS migrations (
-				id SERIAL PRIMARY KEY,
-				version INTEGER NOT NULL UNIQUE,
-				name VARCHAR(255) NOT NULL,
-				applied BOOLEAN NOT NULL DEFAULT FALSE,
-				applied_at TIMESTAMP
-			)`
-	} else if d.dbType == "mysql" {
-		createMigrationTable = `
-			CREATE TABLE IF NOT EXISTS migrations (
-				id INT AUTO_INCREMENT PRIMARY KEY,
-				version INTEGER NOT NULL UNIQUE,
-				name VARCHAR(255) NOT NULL,
-				applied BOOLEAN NOT NULL DEFAULT FALSE,
-				applied_at TIMESTAMP
-			)`
-	}
 	
 	if _, err := d.db.ExecContext(ctx, createMigrationTable); err != nil {
 		return fmt.Errorf("failed to create migrations table: %w", err)
@@ -138,7 +109,7 @@ func (d *SQLDatabase) Migrate(ctx context.Context) error {
 }
 
 // GetMigrationVersion returns the latest applied migration version
-func (d *SQLDatabase) GetMigrationVersion(ctx context.Context) (int, error) {
+func (d *PostgreSQLDatabase) GetMigrationVersion(ctx context.Context) (int, error) {
 	var version int
 	err := d.db.QueryRowContext(ctx, 
 		"SELECT COALESCE(MAX(version), 0) FROM migrations WHERE applied = TRUE").Scan(&version)
@@ -149,19 +120,19 @@ func (d *SQLDatabase) GetMigrationVersion(ctx context.Context) (int, error) {
 }
 
 // SetMigrationVersion marks a migration as applied
-func (d *SQLDatabase) SetMigrationVersion(ctx context.Context, version int) error {
+func (d *PostgreSQLDatabase) SetMigrationVersion(ctx context.Context, version int) error {
 	_, err := d.db.ExecContext(ctx,
-		"UPDATE migrations SET applied = TRUE, applied_at = CURRENT_TIMESTAMP WHERE version = ?",
+		"UPDATE migrations SET applied = TRUE, applied_at = CURRENT_TIMESTAMP WHERE version = $1",
 		version)
 	return err
 }
 
 // User operations
-func (d *SQLDatabase) CreateUser(ctx context.Context, user *User) error {
+func (d *PostgreSQLDatabase) CreateUser(ctx context.Context, user *User) error {
 	query := `
 		INSERT INTO users (id, username, email, password_hash, first_name, last_name, 
 			phone, address, role, status, avatar, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		user.ID, user.Username, user.Email, user.Password, user.FirstName, user.LastName,
@@ -170,12 +141,12 @@ func (d *SQLDatabase) CreateUser(ctx context.Context, user *User) error {
 	return err
 }
 
-func (d *SQLDatabase) GetUser(ctx context.Context, id string) (*User, error) {
+func (d *PostgreSQLDatabase) GetUser(ctx context.Context, id string) (*User, error) {
 	user := &User{}
 	query := `
 		SELECT id, username, email, password_hash, first_name, last_name,
 			phone, address, role, status, avatar, created_at, updated_at
-		FROM users WHERE id = ?`
+		FROM users WHERE id = $1`
 	
 	err := d.db.QueryRowContext(ctx, query, id).Scan(
 		&user.ID, &user.Username, &user.Email, &user.Password, &user.FirstName, &user.LastName,
@@ -191,12 +162,12 @@ func (d *SQLDatabase) GetUser(ctx context.Context, id string) (*User, error) {
 	return user, nil
 }
 
-func (d *SQLDatabase) GetUserByEmail(ctx context.Context, email string) (*User, error) {
+func (d *PostgreSQLDatabase) GetUserByEmail(ctx context.Context, email string) (*User, error) {
 	user := &User{}
 	query := `
 		SELECT id, username, email, password_hash, first_name, last_name,
 			phone, address, role, status, avatar, created_at, updated_at
-		FROM users WHERE email = ?`
+		FROM users WHERE email = $1`
 	
 	err := d.db.QueryRowContext(ctx, query, email).Scan(
 		&user.ID, &user.Username, &user.Email, &user.Password, &user.FirstName, &user.LastName,
@@ -212,12 +183,12 @@ func (d *SQLDatabase) GetUserByEmail(ctx context.Context, email string) (*User, 
 	return user, nil
 }
 
-func (d *SQLDatabase) UpdateUser(ctx context.Context, user *User) error {
+func (d *PostgreSQLDatabase) UpdateUser(ctx context.Context, user *User) error {
 	query := `
-		UPDATE users SET username = ?, email = ?, password_hash = ?, first_name = ?, 
-			last_name = ?, phone = ?, address = ?, role = ?, status = ?, 
-			avatar = ?, updated_at = ?
-		WHERE id = ?`
+		UPDATE users SET username = $1, email = $2, password_hash = $3, first_name = $4, 
+			last_name = $5, phone = $6, address = $7, role = $8, status = $9, 
+			avatar = $10, updated_at = $11
+		WHERE id = $12`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		user.Username, user.Email, user.Password, user.FirstName, user.LastName,
@@ -226,34 +197,39 @@ func (d *SQLDatabase) UpdateUser(ctx context.Context, user *User) error {
 	return err
 }
 
-func (d *SQLDatabase) ListUsers(ctx context.Context, filter UserFilter) ([]*User, error) {
+func (d *PostgreSQLDatabase) ListUsers(ctx context.Context, filter UserFilter) ([]*User, error) {
 	query := "SELECT id, username, email, password_hash, first_name, last_name, phone, address, role, status, avatar, created_at, updated_at FROM users WHERE 1=1"
 	args := []interface{}{}
+	argIndex := 1
 	
 	if filter.Status != "" {
-		query += " AND status = ?"
+		query += fmt.Sprintf(" AND status = $%d", argIndex)
 		args = append(args, filter.Status)
+		argIndex++
 	}
 	
 	if filter.Role != "" {
-		query += " AND role = ?"
+		query += fmt.Sprintf(" AND role = $%d", argIndex)
 		args = append(args, filter.Role)
+		argIndex++
 	}
 	
 	if filter.Search != "" {
-		query += " AND (username LIKE ? OR email LIKE ? OR first_name LIKE ? OR last_name LIKE ?)"
+		query += fmt.Sprintf(" AND (username LIKE $%d OR email LIKE $%d OR first_name LIKE $%d OR last_name LIKE $%d)", argIndex, argIndex+1, argIndex+2, argIndex+3)
 		searchTerm := "%" + filter.Search + "%"
 		args = append(args, searchTerm, searchTerm, searchTerm, searchTerm)
+		argIndex += 4
 	}
 	
 	query += " ORDER BY created_at DESC"
 	
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
+		query += fmt.Sprintf(" LIMIT $%d", argIndex)
 		args = append(args, filter.Limit)
+		argIndex++
 		
 		if filter.Offset > 0 {
-			query += " OFFSET ?"
+			query += fmt.Sprintf(" OFFSET $%d", argIndex)
 			args = append(args, filter.Offset)
 		}
 	}
@@ -280,10 +256,10 @@ func (d *SQLDatabase) ListUsers(ctx context.Context, filter UserFilter) ([]*User
 }
 
 // Helper methods for migrations
-func (d *SQLDatabase) isMigrationApplied(ctx context.Context, version int) (bool, error) {
+func (d *PostgreSQLDatabase) isMigrationApplied(ctx context.Context, version int) (bool, error) {
 	var applied bool
 	err := d.db.QueryRowContext(ctx, 
-		"SELECT applied FROM migrations WHERE version = ?", version).Scan(&applied)
+		"SELECT applied FROM migrations WHERE version = $1", version).Scan(&applied)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			return false, nil
@@ -293,7 +269,7 @@ func (d *SQLDatabase) isMigrationApplied(ctx context.Context, version int) (bool
 	return applied, nil
 }
 
-func (d *SQLDatabase) runMigration(ctx context.Context, version int, name, migrationSQL string) error {
+func (d *PostgreSQLDatabase) runMigration(ctx context.Context, version int, name, migrationSQL string) error {
 	tx, err := d.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -307,7 +283,7 @@ func (d *SQLDatabase) runMigration(ctx context.Context, version int, name, migra
 
 	// Insert migration record
 	_, err = tx.ExecContext(ctx,
-		"INSERT INTO migrations (version, name, applied, applied_at) VALUES (?, ?, TRUE, CURRENT_TIMESTAMP)",
+		"INSERT INTO migrations (version, name, applied, applied_at) VALUES ($1, $2, TRUE, CURRENT_TIMESTAMP)",
 		version, name)
 	if err != nil {
 		return fmt.Errorf("failed to record migration: %w", err)
@@ -317,11 +293,11 @@ func (d *SQLDatabase) runMigration(ctx context.Context, version int, name, migra
 }
 
 // Item operations
-func (d *SQLDatabase) CreateItem(ctx context.Context, item *Item) error {
+func (d *PostgreSQLDatabase) CreateItem(ctx context.Context, item *Item) error {
 	query := `
 		INSERT INTO items (id, name, title, description, daily_rate, price, image_url, 
 			owner_id, available, status, category, location, featured, views, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		item.ID, item.Name, item.Title, item.Description, item.DailyRate, item.Price,
@@ -330,12 +306,12 @@ func (d *SQLDatabase) CreateItem(ctx context.Context, item *Item) error {
 	return err
 }
 
-func (d *SQLDatabase) GetItem(ctx context.Context, id string) (*Item, error) {
+func (d *PostgreSQLDatabase) GetItem(ctx context.Context, id string) (*Item, error) {
 	item := &Item{}
 	query := `
 		SELECT id, name, title, description, daily_rate, price, image_url, owner_id,
 			available, status, category, location, featured, views, created_at, updated_at
-		FROM items WHERE id = ?`
+		FROM items WHERE id = $1`
 	
 	err := d.db.QueryRowContext(ctx, query, id).Scan(
 		&item.ID, &item.Name, &item.Title, &item.Description, &item.DailyRate, &item.Price,
@@ -351,12 +327,12 @@ func (d *SQLDatabase) GetItem(ctx context.Context, id string) (*Item, error) {
 	return item, nil
 }
 
-func (d *SQLDatabase) UpdateItem(ctx context.Context, item *Item) error {
+func (d *PostgreSQLDatabase) UpdateItem(ctx context.Context, item *Item) error {
 	query := `
-		UPDATE items SET name = ?, title = ?, description = ?, daily_rate = ?, price = ?,
-			image_url = ?, available = ?, status = ?, category = ?, location = ?,
-			featured = ?, views = ?, updated_at = ?
-		WHERE id = ?`
+		UPDATE items SET name = $1, title = $2, description = $3, daily_rate = $4, price = $5,
+			image_url = $6, available = $7, status = $8, category = $9, location = $10,
+			featured = $11, views = $12, updated_at = $13
+		WHERE id = $14`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		item.Name, item.Title, item.Description, item.DailyRate, item.Price,
@@ -365,12 +341,12 @@ func (d *SQLDatabase) UpdateItem(ctx context.Context, item *Item) error {
 	return err
 }
 
-func (d *SQLDatabase) DeleteItem(ctx context.Context, id string) error {
-	_, err := d.db.ExecContext(ctx, "DELETE FROM items WHERE id = ?", id)
+func (d *PostgreSQLDatabase) DeleteItem(ctx context.Context, id string) error {
+	_, err := d.db.ExecContext(ctx, "DELETE FROM items WHERE id = $1", id)
 	return err
 }
 
-func (d *SQLDatabase) ListItems(ctx context.Context, filter ItemFilter) ([]*Item, error) {
+func (d *PostgreSQLDatabase) ListItems(ctx context.Context, filter ItemFilter) ([]*Item, error) {
 	query := `SELECT id, name, title, description, daily_rate, price, image_url, owner_id,
 		available, status, category, location, featured, views, created_at, updated_at FROM items WHERE 1=1`
 	args := []interface{}{}
@@ -465,7 +441,7 @@ func (d *SQLDatabase) ListItems(ctx context.Context, filter ItemFilter) ([]*Item
 }
 
 // Booking operations
-func (d *SQLDatabase) CreateBooking(ctx context.Context, booking *Booking) error {
+func (d *PostgreSQLDatabase) CreateBooking(ctx context.Context, booking *Booking) error {
 	query := `
 		INSERT INTO bookings (id, item_id, user_id, start_date, end_date, total_price,
 			status, payment_id, notes, created_at, updated_at)
@@ -478,7 +454,7 @@ func (d *SQLDatabase) CreateBooking(ctx context.Context, booking *Booking) error
 	return err
 }
 
-func (d *SQLDatabase) GetBooking(ctx context.Context, id string) (*Booking, error) {
+func (d *PostgreSQLDatabase) GetBooking(ctx context.Context, id string) (*Booking, error) {
 	booking := &Booking{}
 	query := `
 		SELECT id, item_id, user_id, start_date, end_date, total_price, status,
@@ -499,7 +475,7 @@ func (d *SQLDatabase) GetBooking(ctx context.Context, id string) (*Booking, erro
 	return booking, nil
 }
 
-func (d *SQLDatabase) UpdateBooking(ctx context.Context, booking *Booking) error {
+func (d *PostgreSQLDatabase) UpdateBooking(ctx context.Context, booking *Booking) error {
 	query := `
 		UPDATE bookings SET item_id = ?, user_id = ?, start_date = ?, end_date = ?,
 			total_price = ?, status = ?, payment_id = ?, notes = ?, updated_at = ?
@@ -512,7 +488,7 @@ func (d *SQLDatabase) UpdateBooking(ctx context.Context, booking *Booking) error
 	return err
 }
 
-func (d *SQLDatabase) ListBookings(ctx context.Context, filter BookingFilter) ([]*Booking, error) {
+func (d *PostgreSQLDatabase) ListBookings(ctx context.Context, filter BookingFilter) ([]*Booking, error) {
 	query := `SELECT id, item_id, user_id, start_date, end_date, total_price, status,
 		payment_id, notes, created_at, updated_at FROM bookings WHERE 1=1`
 	args := []interface{}{}
@@ -576,7 +552,7 @@ func (d *SQLDatabase) ListBookings(ctx context.Context, filter BookingFilter) ([
 	return bookings, nil
 }
 
-func (d *SQLDatabase) CheckAvailability(ctx context.Context, itemID string, startDate, endDate time.Time) (bool, error) {
+func (d *PostgreSQLDatabase) CheckAvailability(ctx context.Context, itemID string, startDate, endDate time.Time) (bool, error) {
 	query := `
 		SELECT COUNT(*) FROM bookings 
 		WHERE item_id = ? AND status != 'cancelled' 
@@ -592,7 +568,7 @@ func (d *SQLDatabase) CheckAvailability(ctx context.Context, itemID string, star
 }
 
 // Admin operations
-func (d *SQLDatabase) CreateAdminLog(ctx context.Context, log *AdminLog) error {
+func (d *PostgreSQLDatabase) CreateAdminLog(ctx context.Context, log *AdminLog) error {
 	query := `
 		INSERT INTO admin_logs (id, admin_user_id, action, target_type, target_id,
 			details, ip_address, user_agent, created_at)
@@ -604,7 +580,7 @@ func (d *SQLDatabase) CreateAdminLog(ctx context.Context, log *AdminLog) error {
 	return err
 }
 
-func (d *SQLDatabase) ListAdminLogs(ctx context.Context, filter AdminLogFilter) ([]*AdminLog, error) {
+func (d *PostgreSQLDatabase) ListAdminLogs(ctx context.Context, filter AdminLogFilter) ([]*AdminLog, error) {
 	query := `SELECT id, admin_user_id, action, target_type, target_id, details,
 		ip_address, user_agent, created_at FROM admin_logs WHERE 1=1`
 	args := []interface{}{}
@@ -671,7 +647,7 @@ func (d *SQLDatabase) ListAdminLogs(ctx context.Context, filter AdminLogFilter) 
 	return logs, nil
 }
 
-func (d *SQLDatabase) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
+func (d *PostgreSQLDatabase) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
 	stats := &DashboardStats{}
 	
 	// Get basic counts
@@ -707,7 +683,7 @@ func (d *SQLDatabase) GetDashboardStats(ctx context.Context) (*DashboardStats, e
 }
 
 // System settings operations  
-func (d *SQLDatabase) GetSystemSetting(ctx context.Context, key string) (*SystemSetting, error) {
+func (d *PostgreSQLDatabase) GetSystemSetting(ctx context.Context, key string) (*SystemSetting, error) {
 	setting := &SystemSetting{}
 	query := `
 		SELECT id, setting_key, setting_value, setting_type, description, 
@@ -728,35 +704,14 @@ func (d *SQLDatabase) GetSystemSetting(ctx context.Context, key string) (*System
 	return setting, nil
 }
 
-func (d *SQLDatabase) SetSystemSetting(ctx context.Context, setting *SystemSetting) error {
+func (d *PostgreSQLDatabase) SetSystemSetting(ctx context.Context, setting *SystemSetting) error {
 	query := `
 		INSERT INTO system_settings (id, setting_key, setting_value, setting_type,
 			description, category, is_public, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT(setting_key) DO UPDATE SET
-		setting_value = ?, setting_type = ?, description = ?, category = ?,
-		is_public = ?, updated_at = ?`
-	
-	if d.dbType == "mysql" {
-		query = `
-			INSERT INTO system_settings (id, setting_key, setting_value, setting_type,
-				description, category, is_public, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE
-			setting_value = ?, setting_type = ?, description = ?, category = ?,
-			is_public = ?, updated_at = ?`
-	} else if d.dbType == "sqlite" {
-		query = `
-			INSERT OR REPLACE INTO system_settings (id, setting_key, setting_value, setting_type,
-				description, category, is_public, created_at, updated_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-		
-		_, err := d.db.ExecContext(ctx, query,
-			setting.ID, setting.Key, setting.Value, setting.Type,
-			setting.Description, setting.Category, setting.IsPublic,
-			setting.CreatedAt, setting.UpdatedAt)
-		return err
-	}
+		setting_value = $10, setting_type = $11, description = $12, category = $13,
+		is_public = $14, updated_at = $15`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		setting.ID, setting.Key, setting.Value, setting.Type,
@@ -767,7 +722,7 @@ func (d *SQLDatabase) SetSystemSetting(ctx context.Context, setting *SystemSetti
 	return err
 }
 
-func (d *SQLDatabase) ListSystemSettings(ctx context.Context) ([]*SystemSetting, error) {
+func (d *PostgreSQLDatabase) ListSystemSettings(ctx context.Context) ([]*SystemSetting, error) {
 	query := `SELECT id, setting_key, setting_value, setting_type, description,
 		category, is_public, created_at, updated_at FROM system_settings ORDER BY category, setting_key`
 	
@@ -793,83 +748,68 @@ func (d *SQLDatabase) ListSystemSettings(ctx context.Context) ([]*SystemSetting,
 }
 
 // Placeholder implementations for remaining operations
-func (d *SQLDatabase) CreatePayment(ctx context.Context, payment *Payment) error {
+func (d *PostgreSQLDatabase) CreatePayment(ctx context.Context, payment *Payment) error {
 	// Implementation similar to other Create methods
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) GetPayment(ctx context.Context, id string) (*Payment, error) {
+func (d *PostgreSQLDatabase) GetPayment(ctx context.Context, id string) (*Payment, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) UpdatePayment(ctx context.Context, payment *Payment) error {
+func (d *PostgreSQLDatabase) UpdatePayment(ctx context.Context, payment *Payment) error {
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) ListPayments(ctx context.Context, filter PaymentFilter) ([]*Payment, error) {
+func (d *PostgreSQLDatabase) ListPayments(ctx context.Context, filter PaymentFilter) ([]*Payment, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) CreateRating(ctx context.Context, rating *Rating) error {
+func (d *PostgreSQLDatabase) CreateRating(ctx context.Context, rating *Rating) error {
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) GetRating(ctx context.Context, id string) (*Rating, error) {
+func (d *PostgreSQLDatabase) GetRating(ctx context.Context, id string) (*Rating, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) UpdateRating(ctx context.Context, rating *Rating) error {
+func (d *PostgreSQLDatabase) UpdateRating(ctx context.Context, rating *Rating) error {
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) DeleteRating(ctx context.Context, id string) error {
+func (d *PostgreSQLDatabase) DeleteRating(ctx context.Context, id string) error {
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) ListItemRatings(ctx context.Context, itemID string) ([]*Rating, error) {
+func (d *PostgreSQLDatabase) ListItemRatings(ctx context.Context, itemID string) ([]*Rating, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) CreateMessage(ctx context.Context, message *Message) error {
+func (d *PostgreSQLDatabase) CreateMessage(ctx context.Context, message *Message) error {
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) GetMessage(ctx context.Context, id string) (*Message, error) {
+func (d *PostgreSQLDatabase) GetMessage(ctx context.Context, id string) (*Message, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) UpdateMessage(ctx context.Context, message *Message) error {
+func (d *PostgreSQLDatabase) UpdateMessage(ctx context.Context, message *Message) error {
 	return fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) ListConversation(ctx context.Context, userID1, userID2 string) ([]*Message, error) {
+func (d *PostgreSQLDatabase) ListConversation(ctx context.Context, userID1, userID2 string) ([]*Message, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-func (d *SQLDatabase) ListUserConversations(ctx context.Context, userID string) ([]*ConversationSummary, error) {
+func (d *PostgreSQLDatabase) ListUserConversations(ctx context.Context, userID string) ([]*ConversationSummary, error) {
 	return nil, fmt.Errorf("not implemented yet")
 }
 
-// Migration SQL content
-func (d *SQLDatabase) getInitialSchemaMigration() string {
-	// Adjust SQL for different database types
-	switch d.dbType {
-	case "postgres":
-		return d.getPostgresSchemaMigration()
-	case "mysql":
-		return d.getMySQLSchemaMigration()
-	default: // sqlite
-		return d.getSQLiteSchemaMigration()
-	}
+// Migration SQL content for PostgreSQL
+func (d *PostgreSQLDatabase) getInitialSchemaMigration() string {
+	return d.getPostgresSchemaMigration()
 }
 
-func (d *SQLDatabase) getAdditionalTablesMigration() string {
-	switch d.dbType {
-	case "postgres":
-		return d.getPostgresAdditionalTablesMigration()
-	case "mysql":
-		return d.getMySQLAdditionalTablesMigration()
-	default: // sqlite
-		return d.getSQLiteAdditionalTablesMigration()
-	}
+func (d *PostgreSQLDatabase) getAdditionalTablesMigration() string {
+	return d.getPostgresAdditionalTablesMigration()
 }
