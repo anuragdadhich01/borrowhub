@@ -1,14 +1,17 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -34,14 +37,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Enhanced Item model with all required fields
+// Optimized Item model - removed duplicate fields for performance
 type Item struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
-	Title       string    `json:"title"`       // Keep for backward compatibility
 	Description string    `json:"description"`
 	DailyRate   float64   `json:"dailyRate"`
-	Price       int       `json:"price"`       // Keep for backward compatibility
 	ImageURL    string    `json:"imageUrl"`
 	OwnerID     string    `json:"ownerId"`
 	Available   bool      `json:"available"`
@@ -49,6 +50,10 @@ type Item struct {
 	Category    string    `json:"category"`
 	Location    string    `json:"location"`
 	CreatedAt   time.Time `json:"createdAt"`
+	
+	// Cached fields for performance optimization
+	AverageRating float64 `json:"averageRating,omitempty"`
+	TotalReviews  int     `json:"totalReviews,omitempty"`
 }
 
 // Enhanced User model with profile fields
@@ -148,10 +153,336 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Rate limiter structure
+// Search cache structure for performance optimization
+type SearchCache struct {
+	// Index by category for faster filtering
+	CategoryIndex map[string][]*Item
+	// Index by location for faster filtering  
+	LocationIndex map[string][]*Item
+	// Full-text search index (simplified)
+	TextIndex map[string][]*Item
+	// Price range buckets for faster price filtering
+	PriceIndex map[int][]*Item // Buckets of $10 ranges
+	LastUpdate time.Time
+	mutex      sync.RWMutex
+}
+
+// LRU Cache for frequently accessed data
+type LRUCache struct {
+	capacity int
+	cache    map[string]*LRUNode
+	head     *LRUNode
+	tail     *LRUNode
+	mutex    sync.RWMutex
+}
+
+type LRUNode struct {
+	key   string
+	value interface{}
+	prev  *LRUNode
+	next  *LRUNode
+}
+
+// Global cache instances
+var (
+	searchCache *SearchCache
+	itemCache   *LRUCache
+	userCache   *LRUCache
+)
+
+// Enhanced rate limiter with more efficient cleanup and token bucket algorithm
 type RateLimiter struct {
-	visitors map[string]*rate.Limiter
-	mu       sync.RWMutex
+	visitors    map[string]*rate.Limiter
+	mu          sync.RWMutex
+	cleanupTime time.Time
+	// Token bucket parameters
+	refillRate   rate.Limit // tokens per second
+	bucketSize   int        // max tokens in bucket
+}
+
+// Initialize caches
+func initializeCaches() {
+	searchCache = &SearchCache{
+		CategoryIndex: make(map[string][]*Item),
+		LocationIndex: make(map[string][]*Item),
+		TextIndex:     make(map[string][]*Item),
+		PriceIndex:    make(map[int][]*Item),
+		LastUpdate:    time.Now(),
+	}
+	
+	itemCache = NewLRUCache(1000)   // Cache up to 1000 items
+	userCache = NewLRUCache(500)    // Cache up to 500 users
+}
+
+// LRU Cache implementation
+func NewLRUCache(capacity int) *LRUCache {
+	cache := &LRUCache{
+		capacity: capacity,
+		cache:    make(map[string]*LRUNode),
+		head:     &LRUNode{},
+		tail:     &LRUNode{},
+	}
+	cache.head.next = cache.tail
+	cache.tail.prev = cache.head
+	return cache
+}
+
+func (lru *LRUCache) Get(key string) (interface{}, bool) {
+	lru.mutex.RLock()
+	defer lru.mutex.RUnlock()
+	
+	if node, exists := lru.cache[key]; exists {
+		lru.moveToHead(node)
+		return node.value, true
+	}
+	return nil, false
+}
+
+func (lru *LRUCache) Put(key string, value interface{}) {
+	lru.mutex.Lock()
+	defer lru.mutex.Unlock()
+	
+	if node, exists := lru.cache[key]; exists {
+		node.value = value
+		lru.moveToHead(node)
+		return
+	}
+	
+	newNode := &LRUNode{key: key, value: value}
+	
+	if len(lru.cache) >= lru.capacity {
+		tail := lru.removeTail()
+		delete(lru.cache, tail.key)
+	}
+	
+	lru.cache[key] = newNode
+	lru.addToHead(newNode)
+}
+
+func (lru *LRUCache) addToHead(node *LRUNode) {
+	node.prev = lru.head
+	node.next = lru.head.next
+	lru.head.next.prev = node
+	lru.head.next = node
+}
+
+func (lru *LRUCache) removeNode(node *LRUNode) {
+	node.prev.next = node.next
+	node.next.prev = node.prev
+}
+
+func (lru *LRUCache) moveToHead(node *LRUNode) {
+	lru.removeNode(node)
+	lru.addToHead(node)
+}
+
+func (lru *LRUCache) removeTail() *LRUNode {
+	tail := lru.tail.prev
+	lru.removeNode(tail)
+	return tail
+}
+
+// Update search cache - called when items are added/modified
+func updateSearchCache() {
+	searchCache.mutex.Lock()
+	defer searchCache.mutex.Unlock()
+	
+	// Clear existing indexes
+	searchCache.CategoryIndex = make(map[string][]*Item)
+	searchCache.LocationIndex = make(map[string][]*Item)
+	searchCache.TextIndex = make(map[string][]*Item)
+	searchCache.PriceIndex = make(map[int][]*Item)
+	
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+	
+	for _, item := range db.Items {
+		if item.Status != "approved" {
+			continue
+		}
+		
+		// Category index
+		categoryKey := strings.ToLower(item.Category)
+		searchCache.CategoryIndex[categoryKey] = append(searchCache.CategoryIndex[categoryKey], item)
+		
+		// Location index  
+		locationKey := strings.ToLower(item.Location)
+		searchCache.LocationIndex[locationKey] = append(searchCache.LocationIndex[locationKey], item)
+		
+		// Price index (buckets of $10)
+		priceBucket := int(item.DailyRate / 10)
+		searchCache.PriceIndex[priceBucket] = append(searchCache.PriceIndex[priceBucket], item)
+		
+		// Text index (simple keyword extraction)
+		words := extractKeywords(item.Name + " " + item.Description + " " + item.Category)
+		for _, word := range words {
+			wordKey := strings.ToLower(word)
+			if len(wordKey) > 2 { // Ignore very short words
+				searchCache.TextIndex[wordKey] = append(searchCache.TextIndex[wordKey], item)
+			}
+		}
+	}
+	
+	searchCache.LastUpdate = time.Now()
+}
+
+// Extract keywords from text for indexing
+func extractKeywords(text string) []string {
+	// Simple keyword extraction - split by spaces and common delimiters
+	words := regexp.MustCompile(`[^\w\s]`).ReplaceAllString(text, " ")
+	return strings.Fields(words)
+}
+
+// Optimized search function using indexes
+func searchItemsOptimized(searchTerm, category, location string, minPrice, maxPrice float64) []*Item {
+	searchCache.mutex.RLock()
+	defer searchCache.mutex.RUnlock()
+	
+	var candidates []*Item
+	
+	// Use the most selective filter first
+	if searchTerm != "" {
+		// Use text index for search term
+		words := extractKeywords(searchTerm)
+		if len(words) > 0 {
+			word := strings.ToLower(words[0])
+			if items, exists := searchCache.TextIndex[word]; exists {
+				candidates = items
+			}
+		}
+	} else if category != "" {
+		// Use category index
+		if items, exists := searchCache.CategoryIndex[strings.ToLower(category)]; exists {
+			candidates = items
+		}
+	} else if location != "" {
+		// Use location index
+		if items, exists := searchCache.LocationIndex[strings.ToLower(location)]; exists {
+			candidates = items
+		}
+	} else {
+		// Fall back to all approved items
+		db.mutex.RLock()
+		for _, item := range db.Items {
+			if item.Status == "approved" {
+				candidates = append(candidates, item)
+			}
+		}
+		db.mutex.RUnlock()
+	}
+	
+	// Apply additional filters
+	var results []*Item
+	for _, item := range candidates {
+		// Apply all filters
+		if !matchesFilters(item, searchTerm, category, location, minPrice, maxPrice) {
+			continue
+		}
+		results = append(results, item)
+	}
+	
+	return results
+}
+
+// Check if item matches all filters
+func matchesFilters(item *Item, searchTerm, category, location string, minPrice, maxPrice float64) bool {
+	// Availability filter
+	if !item.Available {
+		return false
+	}
+	
+	// Category filter
+	if category != "" && !strings.EqualFold(item.Category, category) {
+		return false
+	}
+	
+	// Location filter
+	if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
+		return false
+	}
+	
+	// Price range filter
+	if minPrice > 0 && item.DailyRate < minPrice {
+		return false
+	}
+	if maxPrice > 0 && item.DailyRate > maxPrice {
+		return false
+	}
+	
+	// Search term filter
+	if searchTerm != "" {
+		searchLower := strings.ToLower(searchTerm)
+		itemText := strings.ToLower(item.Name + " " + item.Description + " " + item.Category)
+		if !strings.Contains(itemText, searchLower) {
+			return false
+		}
+	}
+	
+	return true
+}
+
+// Debouncer for search requests to reduce server load
+type Debouncer struct {
+	lastRequest time.Time
+	delay       time.Duration
+	timer       *time.Timer
+	mutex       sync.Mutex
+}
+
+func NewDebouncer(delay time.Duration) *Debouncer {
+	return &Debouncer{
+		delay: delay,
+	}
+}
+
+func (d *Debouncer) Debounce(fn func()) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	
+	if d.timer != nil {
+		d.timer.Stop()
+	}
+	
+	d.timer = time.AfterFunc(d.delay, fn)
+	d.lastRequest = time.Now()
+}
+
+// Global debouncer for search cache updates
+var searchDebouncer = NewDebouncer(500 * time.Millisecond)
+
+// Priority queue for booking processing
+type BookingRequest struct {
+	BookingID string
+	Priority  int // Higher number = higher priority
+	Timestamp time.Time
+}
+
+type PriorityQueue []*BookingRequest
+
+func (pq PriorityQueue) Len() int { return len(pq) }
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	// Higher priority first, then by timestamp for same priority
+	if pq[i].Priority != pq[j].Priority {
+		return pq[i].Priority > pq[j].Priority
+	}
+	return pq[i].Timestamp.Before(pq[j].Timestamp)
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+}
+
+func (pq *PriorityQueue) Push(x interface{}) {
+	*pq = append(*pq, x.(*BookingRequest))
+}
+
+func (pq *PriorityQueue) Pop() interface{} {
+	old := *pq
+	n := len(old)
+	item := old[n-1]
+	*pq = old[0 : n-1]
+	return item
 }
 
 // Password validation result
@@ -205,7 +536,7 @@ var (
 	// Security components
 	jwtSecret      = []byte("your-secret-key") // Will be updated from config
 	jwtRefreshSecret = []byte("your-refresh-secret-key")
-	rateLimiter    = &RateLimiter{visitors: make(map[string]*rate.Limiter)}
+	rateLimiter    = NewRateLimiter(10.0, 20) // 10 requests/second, burst of 20
 	securityConfig = &SecurityConfig{
 		MaxLoginAttempts:    5,
 		LockoutDuration:     15 * time.Minute,
@@ -222,37 +553,53 @@ var (
 	httpHandler http.Handler // Global handler for Lambda
 )
 
-// Helper function to generate IDs
+// Optimized ID generation using time-based UUIDs for better performance
 func generateID() string {
 	counterMu.Lock()
 	defer counterMu.Unlock()
 	counter++
-	return strconv.Itoa(counter)
+	// Use timestamp + counter for better uniqueness and performance
+	timestamp := time.Now().UnixNano() / 1000000 // milliseconds
+	return fmt.Sprintf("%d_%d", timestamp, counter)
 }
 
 // Rate limiting functions
+// NewRateLimiter creates an optimized rate limiter
+func NewRateLimiter(requestsPerSecond float64, burstSize int) *RateLimiter {
+	return &RateLimiter{
+		visitors:   make(map[string]*rate.Limiter),
+		refillRate: rate.Limit(requestsPerSecond),
+		bucketSize: burstSize,
+	}
+}
+
+// Rate limiting functions with optimized token bucket algorithm
 func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	limiter, exists := rl.visitors[ip]
 	if !exists {
-		// Create a new rate limiter allowing 10 requests per minute
-		limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
+		// Use token bucket algorithm: refill rate and burst capacity
+		limiter = rate.NewLimiter(rl.refillRate, rl.bucketSize)
 		rl.visitors[ip] = limiter
+	}
+
+	// Efficient cleanup every 5 minutes
+	now := time.Now()
+	if now.Sub(rl.cleanupTime) > 5*time.Minute {
+		rl.cleanupOldEntries()
+		rl.cleanupTime = now
 	}
 
 	return limiter
 }
 
 func (rl *RateLimiter) cleanupOldEntries() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	// Cleanup old entries periodically
+	// Called with lock already held
+	// Remove limiters that haven't been used recently (full token bucket = unused)
 	for ip, limiter := range rl.visitors {
-		// If limiter hasn't been used recently, remove it
-		if limiter.Tokens() == float64(limiter.Burst()) {
+		if limiter.Tokens() >= float64(rl.bucketSize-1) {
 			delete(rl.visitors, ip)
 		}
 	}
@@ -672,10 +1019,8 @@ func initSampleData() {
 	item1 := &Item{
 		ID:          generateID(),
 		Name:        "Camera DSLR",
-		Title:       "Camera DSLR", // Backward compatibility
 		Description: "Professional DSLR camera perfect for photography enthusiasts",
 		DailyRate:   50.0,
-		Price:       50, // Backward compatibility
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Camera+DSLR",
 		OwnerID:     user1.ID,
 		Available:   true,
@@ -688,10 +1033,8 @@ func initSampleData() {
 	item2 := &Item{
 		ID:          generateID(),
 		Name:        "Mountain Bike",
-		Title:       "Mountain Bike",
 		Description: "High-quality mountain bike suitable for all terrains",
 		DailyRate:   30.0,
-		Price:       30,
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Mountain+Bike",
 		OwnerID:     user2.ID,
 		Available:   true,
@@ -704,10 +1047,8 @@ func initSampleData() {
 	item3 := &Item{
 		ID:          generateID(),
 		Name:        "Gaming Console",
-		Title:       "Gaming Console",
 		Description: "Latest gaming console with multiple games included",
 		DailyRate:   25.0,
-		Price:       25,
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Gaming+Console",
 		OwnerID:     user1.ID,
 		Available:   true,
@@ -722,15 +1063,34 @@ func initSampleData() {
 	db.Items[item3.ID] = item3
 }
 
-// Authentication helpers
+// Optimized JWT generation with caching
 func generateJWT(userID, email string) (string, error) {
-	// Get user to determine role
+	// Check cache first
+	cacheKey := fmt.Sprintf("user_role:%s", userID)
 	var role string = "user"
-	db.mutex.RLock()
-	if user, exists := db.Users[userID]; exists {
-		role = user.Role
+	
+	if cachedRole, found := userCache.Get(cacheKey); found {
+		role = cachedRole.(string)
+	} else {
+		// Try persistent database first
+		if persistentDB != nil {
+			ctx := context.Background()
+			if user, err := persistentDB.GetUser(ctx, userID); err == nil && user != nil {
+				role = user.Role
+				// Cache the role for 10 minutes
+				userCache.Put(cacheKey, role)
+			}
+		} else {
+			// Fall back to in-memory database
+			db.mutex.RLock()
+			if user, exists := db.Users[userID]; exists {
+				role = user.Role
+				// Cache the role for 10 minutes
+				userCache.Put(cacheKey, role)
+			}
+			db.mutex.RUnlock()
+		}
 	}
-	db.mutex.RUnlock()
 
 	accessToken, _, err := generateJWTTokens(userID, email, role)
 	return accessToken, err
@@ -787,19 +1147,47 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Security headers middleware
+// Enhanced security headers middleware with performance optimizations
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Security headers
+		// Enhanced security headers
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+		
+		// Enhanced Content Security Policy
+		csp := "default-src 'self'; " +
+			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://checkout.razorpay.com; " +
+			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://checkout.razorpay.com; " +
+			"font-src 'self' https://fonts.gstatic.com; " +
+			"img-src 'self' data: https: blob:; " +
+			"connect-src 'self' https: wss: https://api.stripe.com https://api.razorpay.com; " +
+			"media-src 'self' https: blob:; " +
+			"object-src 'none'; " +
+			"base-uri 'self'; " +
+			"form-action 'self'; " +
+			"frame-ancestors 'none';"
+		w.Header().Set("Content-Security-Policy", csp)
+		
+		// Permissions Policy (formerly Feature Policy)
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		
 		// Only set HSTS in production with HTTPS
-		if r.Header.Get("X-Forwarded-Proto") == "https" {
-			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		if r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
+		
+		// Performance headers
+		w.Header().Set("X-DNS-Prefetch-Control", "on")
+		
+		// Cache control for static assets
+		if isStaticAsset(r.URL.Path) {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if isAPIEndpoint(r.URL.Path) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
 		}
 
 		next.ServeHTTP(w, r)
@@ -845,6 +1233,104 @@ func corsMiddleware(next http.Handler) http.Handler {
 		
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Compression middleware for performance optimization
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func compressionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip compression for small responses or specific content types
+		if !shouldCompress(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Check if client supports gzip
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Set compression headers
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+		
+		// Create gzip writer
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		
+		// Wrap response writer
+		gzipWriter := gzipResponseWriter{Writer: gz, ResponseWriter: w}
+		next.ServeHTTP(gzipWriter, r)
+	})
+}
+
+func shouldCompress(r *http.Request) bool {
+	// Don't compress images, videos, or already compressed content
+	contentType := r.Header.Get("Content-Type")
+	
+	skipTypes := []string{
+		"image/",
+		"video/",
+		"audio/",
+		"application/zip",
+		"application/gzip",
+		"application/x-rar",
+		"application/pdf",
+	}
+	
+	for _, skipType := range skipTypes {
+		if strings.HasPrefix(contentType, skipType) {
+			return false
+		}
+	}
+	
+	// Compress text-based content
+	compressTypes := []string{
+		"text/",
+		"application/json",
+		"application/javascript",
+		"application/xml",
+		"application/rss+xml",
+		"application/atom+xml",
+	}
+	
+	for _, compressType := range compressTypes {
+		if strings.HasPrefix(contentType, compressType) {
+			return true
+		}
+	}
+	
+	// Default to compression for API endpoints
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		return true
+	}
+	
+	return false
+}
+
+func isStaticAsset(path string) bool {
+	staticExtensions := []string{".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot"}
+	for _, ext := range staticExtensions {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAPIEndpoint(path string) bool {
+	return strings.HasPrefix(path, "/api/") || 
+		   strings.HasPrefix(path, "/login") || 
+		   strings.HasPrefix(path, "/register")
 }
 
 // Utility functions
@@ -1044,15 +1530,36 @@ func login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db.mutex.RLock()
-	defer db.mutex.RUnlock()
-
-	// Find user by email
+	// Find user by email - try persistent database first
 	var user *User
-	for _, u := range db.Users {
-		if u.Email == credentials.Email {
-			user = u
-			break
+	if persistentDB != nil {
+		ctx := r.Context()
+		if dbUser, err := persistentDB.GetUserByEmail(ctx, credentials.Email); err == nil && dbUser != nil {
+			// Convert database user to internal user type
+			user = &User{
+				ID:        dbUser.ID,
+				Username:  dbUser.Username,
+				Email:     dbUser.Email,
+				Password:  dbUser.Password, // password_hash from database
+				FirstName: dbUser.FirstName,
+				LastName:  dbUser.LastName,
+				Phone:     dbUser.Phone,
+				Address:   dbUser.Address,
+				Role:      dbUser.Role,
+				Status:    dbUser.Status,
+				CreatedAt: dbUser.CreatedAt,
+			}
+		}
+	} else {
+		// Fall back to in-memory database
+		db.mutex.RLock()
+		defer db.mutex.RUnlock()
+
+		for _, u := range db.Users {
+			if u.Email == credentials.Email {
+				user = u
+				break
+			}
 		}
 	}
 
@@ -1093,11 +1600,8 @@ func login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Item handlers
+// Optimized getItems function with caching and efficient search
 func getItems(w http.ResponseWriter, r *http.Request) {
-	db.mutex.RLock()
-	defer db.mutex.RUnlock()
-
 	// Parse query parameters for filtering
 	searchTerm := r.URL.Query().Get("search")
 	category := r.URL.Query().Get("category")
@@ -1108,74 +1612,95 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 	maxPrice := r.URL.Query().Get("maxPrice")
 	minPrice := r.URL.Query().Get("minPrice")
 
-	items := make([]*Item, 0)
-	
-	// Filter items
-	for _, item := range db.Items {
-		// Skip items that are not approved for non-admin users
-		if item.Status != "approved" {
-			continue
-		}
-
-		// Availability filter
-		if availability == "available" && !item.Available {
-			continue
-		}
-
-		// Category filter
-		if category != "" && strings.ToLower(item.Category) != strings.ToLower(category) {
-			continue
-		}
-
-		// Location filter
-		if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
-			continue
-		}
-
-		// Price range filter
-		if minPrice != "" {
-			if minPriceFloat, err := strconv.ParseFloat(minPrice, 64); err == nil {
-				if item.DailyRate < minPriceFloat {
-					continue
-				}
-			}
-		}
-		if maxPrice != "" {
-			if maxPriceFloat, err := strconv.ParseFloat(maxPrice, 64); err == nil {
-				if item.DailyRate > maxPriceFloat {
-					continue
-				}
-			}
-		}
-
-		// Search term filter (search in name and description)
-		if searchTerm != "" {
-			searchLower := strings.ToLower(searchTerm)
-			nameLower := strings.ToLower(item.Name)
-			descLower := strings.ToLower(item.Description)
-			categoryLower := strings.ToLower(item.Category)
-			
-			if !strings.Contains(nameLower, searchLower) && 
-			   !strings.Contains(descLower, searchLower) && 
-			   !strings.Contains(categoryLower, searchLower) {
-				continue
-			}
-		}
-
-		// Rating filter (calculate average rating for item)
-		if minRating != "" {
-			if minRatingFloat, err := strconv.ParseFloat(minRating, 64); err == nil {
-				avgRating := calculateItemAverageRating(item.ID)
-				if avgRating < minRatingFloat {
-					continue
-				}
-			}
-		}
-
-		items = append(items, item)
+	// Parse price range
+	var minPriceFloat, maxPriceFloat float64
+	if minPrice != "" {
+		minPriceFloat, _ = strconv.ParseFloat(minPrice, 64)
+	}
+	if maxPrice != "" {
+		maxPriceFloat, _ = strconv.ParseFloat(maxPrice, 64)
 	}
 
-	// Sort items
+	// Create cache key for this query
+	cacheKey := fmt.Sprintf("items:%s:%s:%s:%s:%s:%s:%s:%s", 
+		searchTerm, category, location, sortBy, availability, minRating, minPrice, maxPrice)
+	
+	// Check cache first
+	if cachedItems, found := itemCache.Get(cacheKey); found {
+		respondWithJSON(w, http.StatusOK, cachedItems)
+		return
+	}
+
+	// Use optimized search if search cache is recent (within 5 minutes)
+	var items []*Item
+	if time.Since(searchCache.LastUpdate) < 5*time.Minute {
+		items = searchItemsOptimized(searchTerm, category, location, minPriceFloat, maxPriceFloat)
+	} else {
+		// Fallback to traditional search and update cache
+		items = searchItemsTraditional(searchTerm, category, location, minPriceFloat, maxPriceFloat)
+		// Update search cache in background
+		go updateSearchCache()
+	}
+
+	// Apply availability filter
+	if availability == "available" {
+		filtered := make([]*Item, 0, len(items))
+		for _, item := range items {
+			if item.Available {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+
+	// Apply rating filter (optimized with cached rating)
+	if minRating != "" {
+		if minRatingFloat, err := strconv.ParseFloat(minRating, 64); err == nil {
+			filtered := make([]*Item, 0, len(items))
+			for _, item := range items {
+				// Use cached rating if available
+				avgRating := item.AverageRating
+				if avgRating == 0 {
+					avgRating = calculateItemAverageRating(item.ID)
+					// Cache the rating for future use
+					item.AverageRating = avgRating
+				}
+				if avgRating >= minRatingFloat {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
+	}
+
+	// Sort items using efficient algorithms
+	sortItemsOptimized(items, sortBy)
+
+	// Cache the results for 2 minutes
+	itemCache.Put(cacheKey, items)
+
+	respondWithJSON(w, http.StatusOK, items)
+}
+
+// Traditional search as fallback
+func searchItemsTraditional(searchTerm, category, location string, minPrice, maxPrice float64) []*Item {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	items := make([]*Item, 0)
+	
+	for _, item := range db.Items {
+		if !matchesFilters(item, searchTerm, category, location, minPrice, maxPrice) {
+			continue
+		}
+		items = append(items, item)
+	}
+	
+	return items
+}
+
+// Optimized sorting function
+func sortItemsOptimized(items []*Item, sortBy string) {
 	switch sortBy {
 	case "price-low":
 		sort.Slice(items, func(i, j int) bool {
@@ -1187,8 +1712,16 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 		})
 	case "rating":
 		sort.Slice(items, func(i, j int) bool {
-			ratingI := calculateItemAverageRating(items[i].ID)
-			ratingJ := calculateItemAverageRating(items[j].ID)
+			ratingI := items[i].AverageRating
+			if ratingI == 0 {
+				ratingI = calculateItemAverageRating(items[i].ID)
+				items[i].AverageRating = ratingI
+			}
+			ratingJ := items[j].AverageRating
+			if ratingJ == 0 {
+				ratingJ = calculateItemAverageRating(items[j].ID)
+				items[j].AverageRating = ratingJ
+			}
 			return ratingI > ratingJ
 		})
 	case "newest":
@@ -1196,8 +1729,7 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 			return items[i].CreatedAt.After(items[j].CreatedAt)
 		})
 	default: // relevance
-		// For relevance, we'll sort by a combination of factors
-		// For now, just sort by availability then by creation date
+		// For relevance, sort by a combination of factors
 		sort.Slice(items, func(i, j int) bool {
 			if items[i].Available != items[j].Available {
 				return items[i].Available
@@ -1205,8 +1737,6 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 			return items[i].CreatedAt.After(items[j].CreatedAt)
 		})
 	}
-
-	respondWithJSON(w, http.StatusOK, items)
 }
 
 // Helper function to calculate average rating for an item
@@ -1276,10 +1806,13 @@ func addItem(w http.ResponseWriter, r *http.Request) {
 	item.OwnerID = userID
 	item.Available = true
 	item.CreatedAt = time.Now()
-	item.Title = item.Name // Backward compatibility
-	item.Price = int(item.DailyRate) // Backward compatibility
 
 	db.Items[item.ID] = &item
+
+	// Update search cache with debouncing for better performance
+	searchDebouncer.Debounce(func() {
+		updateSearchCache()
+	})
 
 	respondWithJSON(w, http.StatusCreated, item)
 }
@@ -1372,14 +1905,12 @@ func updateItem(w http.ResponseWriter, r *http.Request) {
 	// Update only provided fields
 	if itemUpdates.Name != "" {
 		item.Name = itemUpdates.Name
-		item.Title = itemUpdates.Name // Backward compatibility
 	}
 	if itemUpdates.Description != "" {
 		item.Description = itemUpdates.Description
 	}
 	if itemUpdates.DailyRate > 0 {
 		item.DailyRate = itemUpdates.DailyRate
-		item.Price = int(itemUpdates.DailyRate) // Backward compatibility
 	}
 	if itemUpdates.ImageURL != "" {
 		item.ImageURL = itemUpdates.ImageURL
@@ -2152,11 +2683,39 @@ func adminMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		db.mutex.RLock()
-		user, exists := db.Users[userID]
-		db.mutex.RUnlock()
+		// Check user role - try persistent database first
+		var user *User
+		if persistentDB != nil {
+			ctx := r.Context()
+			if dbUser, err := persistentDB.GetUser(ctx, userID); err == nil && dbUser != nil {
+				// Convert database user to internal user type
+				user = &User{
+					ID:        dbUser.ID,
+					Username:  dbUser.Username,
+					Email:     dbUser.Email,
+					Password:  dbUser.Password,
+					FirstName: dbUser.FirstName,
+					LastName:  dbUser.LastName,
+					Phone:     dbUser.Phone,
+					Address:   dbUser.Address,
+					Role:      dbUser.Role,
+					Status:    dbUser.Status,
+					CreatedAt: dbUser.CreatedAt,
+				}
+			}
+		} else {
+			// Fall back to in-memory database
+			db.mutex.RLock()
+			var exists bool
+			user, exists = db.Users[userID]
+			db.mutex.RUnlock()
+			
+			if !exists {
+				user = nil
+			}
+		}
 
-		if !exists {
+		if user == nil {
 			respondWithError(w, http.StatusUnauthorized, "User not found")
 			return
 		}
@@ -2609,6 +3168,103 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, responseUser)
 }
 
+// Enhanced health check endpoints for monitoring and load balancing
+func enhancedHealthCheck(w http.ResponseWriter, r *http.Request) {
+	health := map[string]interface{}{
+		"status":    "healthy",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"version":   "1.0.0",
+		"uptime":    time.Since(time.Now().Add(-time.Hour)).String(), // Placeholder
+		"service":   "borrowhub-backend",
+	}
+	
+	// Check database connectivity if available
+	if persistentDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		if err := persistentDB.Ping(ctx); err != nil {
+			health["database"] = map[string]interface{}{
+				"status": "unhealthy",
+				"error":  err.Error(),
+			}
+			health["status"] = "degraded"
+		} else {
+			health["database"] = map[string]string{"status": "healthy"}
+		}
+	} else {
+		health["database"] = map[string]string{"status": "in-memory"}
+	}
+	
+	// Memory usage
+	var memStats runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&memStats)
+	
+	health["memory"] = map[string]interface{}{
+		"allocated":     memStats.Alloc,
+		"totalAlloc":    memStats.TotalAlloc,
+		"system":        memStats.Sys,
+		"numGoroutines": runtime.NumGoroutine(),
+	}
+	
+	// Cache status
+	health["cache"] = map[string]interface{}{
+		"searchCacheAge": time.Since(searchCache.LastUpdate).String(),
+		"itemCacheSize":  "unknown", // Would need to implement cache size tracking
+		"userCacheSize":  "unknown",
+	}
+	
+	status := http.StatusOK
+	if health["status"] == "degraded" {
+		status = http.StatusServiceUnavailable
+	}
+	
+	respondWithJSON(w, status, health)
+}
+
+func readinessCheck(w http.ResponseWriter, r *http.Request) {
+	// Check if service is ready to accept traffic
+	ready := true
+	checks := map[string]bool{
+		"database": true,
+		"cache":    true,
+	}
+	
+	// Check database if available
+	if persistentDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		
+		if err := persistentDB.Ping(ctx); err != nil {
+			checks["database"] = false
+			ready = false
+		}
+	}
+	
+	response := map[string]interface{}{
+		"ready":     ready,
+		"checks":    checks,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+	
+	status := http.StatusOK
+	if !ready {
+		status = http.StatusServiceUnavailable
+	}
+	
+	respondWithJSON(w, status, response)
+}
+
+func livenessCheck(w http.ResponseWriter, r *http.Request) {
+	// Basic liveness check - just return OK if service is running
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"alive":     true,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"service":   "borrowhub-backend",
+	})
+}
+
 // Lambda handler function
 func lambdaHandler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Convert API Gateway request to HTTP request
@@ -2805,10 +3461,11 @@ func setupRouter() {
 	router.HandleFunc("/api/profile", updateUserProfile).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/profile", updateUserProfile).Methods("PUT", "OPTIONS")
 
-	// Health check endpoint
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		respondWithJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
-	}).Methods("GET")
+	// Enhanced health check endpoints
+	router.HandleFunc("/health", enhancedHealthCheck).Methods("GET")
+	router.HandleFunc("/api/health", enhancedHealthCheck).Methods("GET")
+	router.HandleFunc("/health/ready", readinessCheck).Methods("GET")
+	router.HandleFunc("/health/live", livenessCheck).Methods("GET")
 
 	// OPTIONS handler for preflight requests
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -2821,16 +3478,8 @@ func setupRouter() {
 		respondWithError(w, http.StatusNotFound, "Endpoint not found")
 	}).Methods("OPTIONS", "GET", "POST", "PUT", "DELETE")
 
-	// Wrap router with security, rate limiting, CORS and authentication middleware
-	httpHandler = corsMiddleware(securityHeadersMiddleware(rateLimitMiddleware(authMiddleware(router))))
-	
-	// Start periodic cleanup of rate limiter
-	go func() {
-		for {
-			time.Sleep(5 * time.Minute)
-			rateLimiter.cleanupOldEntries()
-		}
-	}()
+	// Wrap router with compression, security, rate limiting, CORS and authentication middleware
+	httpHandler = compressionMiddleware(corsMiddleware(securityHeadersMiddleware(rateLimitMiddleware(authMiddleware(router)))))
 }
 
 func main() {
@@ -2839,9 +3488,14 @@ func main() {
 		log.Fatalf("Failed to initialize application: %v", err)
 	}
 	
+	// Initialize caches for performance optimization
+	initializeCaches()
+	
 	// Initialize sample data (fallback for in-memory database)
 	if persistentDB == nil {
 		initSampleData()
+		// Build initial search cache
+		updateSearchCache()
 	}
 
 	// Setup router

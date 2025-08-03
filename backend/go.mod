@@ -10,9 +10,7 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.24
 	golang.org/x/crypto v0.40.0
+	golang.org/x/time v0.12.0
 )
 
-require (
-	filippo.io/edwards25519 v1.1.0 // indirect
-	golang.org/x/time v0.12.0 // indirect
-)
+require filippo.io/edwards25519 v1.1.0 // indirect
