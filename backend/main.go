@@ -935,7 +935,7 @@ func createAdminLogEntry(ctx context.Context, adminUserID, action, targetType, t
 		return
 	}
 	
-	log := &database.AdminLog{
+	adminLog := &database.AdminLog{
 		ID:          generateID(),
 		AdminUserID: adminUserID,
 		Action:      action,
@@ -945,7 +945,7 @@ func createAdminLogEntry(ctx context.Context, adminUserID, action, targetType, t
 		CreatedAt:   time.Now(),
 	}
 	
-	if err := persistentDB.CreateAdminLog(ctx, log); err != nil {
+	if err := persistentDB.CreateAdminLog(ctx, adminLog); err != nil {
 		log.Printf("Failed to create admin log: %v", err)
 	}
 }

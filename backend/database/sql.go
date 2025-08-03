@@ -352,43 +352,43 @@ func (d *PostgreSQLDatabase) ListItems(ctx context.Context, filter ItemFilter) (
 	args := []interface{}{}
 	
 	if filter.Status != "" {
-		query += " AND status = ?"
+		query += " AND status = $1"
 		args = append(args, filter.Status)
 	}
 	
 	if filter.Category != "" {
-		query += " AND category = ?"
+		query += " AND category = $1"
 		args = append(args, filter.Category)
 	}
 	
 	if filter.OwnerID != "" {
-		query += " AND owner_id = ?"
+		query += " AND owner_id = $1"
 		args = append(args, filter.OwnerID)
 	}
 	
 	if filter.Available != nil {
-		query += " AND available = ?"
+		query += " AND available = $1"
 		args = append(args, *filter.Available)
 	}
 	
 	if filter.Search != "" {
-		query += " AND (name LIKE ? OR description LIKE ? OR category LIKE ?)"
+		query += " AND (name LIKE $1 OR description LIKE $2 OR category LIKE $3)"
 		searchTerm := "%" + filter.Search + "%"
 		args = append(args, searchTerm, searchTerm, searchTerm)
 	}
 	
 	if filter.MinPrice != nil {
-		query += " AND daily_rate >= ?"
+		query += " AND daily_rate >= $1"
 		args = append(args, *filter.MinPrice)
 	}
 	
 	if filter.MaxPrice != nil {
-		query += " AND daily_rate <= ?"
+		query += " AND daily_rate <= $1"
 		args = append(args, *filter.MaxPrice)
 	}
 	
 	if filter.Location != "" {
-		query += " AND location LIKE ?"
+		query += " AND location LIKE $1"
 		args = append(args, "%"+filter.Location+"%")
 	}
 	
@@ -409,11 +409,11 @@ func (d *PostgreSQLDatabase) ListItems(ctx context.Context, filter ItemFilter) (
 	}
 	
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
+		query += " LIMIT $1"
 		args = append(args, filter.Limit)
 		
 		if filter.Offset > 0 {
-			query += " OFFSET ?"
+			query += " OFFSET $1"
 			args = append(args, filter.Offset)
 		}
 	}
@@ -445,7 +445,7 @@ func (d *PostgreSQLDatabase) CreateBooking(ctx context.Context, booking *Booking
 	query := `
 		INSERT INTO bookings (id, item_id, user_id, start_date, end_date, total_price,
 			status, payment_id, notes, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		booking.ID, booking.ItemID, booking.UserID, booking.StartDate, booking.EndDate,
@@ -459,7 +459,7 @@ func (d *PostgreSQLDatabase) GetBooking(ctx context.Context, id string) (*Bookin
 	query := `
 		SELECT id, item_id, user_id, start_date, end_date, total_price, status,
 			payment_id, notes, created_at, updated_at
-		FROM bookings WHERE id = ?`
+		FROM bookings WHERE id = $1`
 	
 	err := d.db.QueryRowContext(ctx, query, id).Scan(
 		&booking.ID, &booking.ItemID, &booking.UserID, &booking.StartDate,
@@ -477,9 +477,9 @@ func (d *PostgreSQLDatabase) GetBooking(ctx context.Context, id string) (*Bookin
 
 func (d *PostgreSQLDatabase) UpdateBooking(ctx context.Context, booking *Booking) error {
 	query := `
-		UPDATE bookings SET item_id = ?, user_id = ?, start_date = ?, end_date = ?,
-			total_price = ?, status = ?, payment_id = ?, notes = ?, updated_at = ?
-		WHERE id = ?`
+		UPDATE bookings SET item_id = $1, user_id = $2, start_date = $3, end_date = $4,
+			total_price = $1, status = $2, payment_id = $3, notes = $4, updated_at = $5
+		WHERE id = $1`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		booking.ItemID, booking.UserID, booking.StartDate, booking.EndDate,
@@ -494,38 +494,38 @@ func (d *PostgreSQLDatabase) ListBookings(ctx context.Context, filter BookingFil
 	args := []interface{}{}
 	
 	if filter.UserID != "" {
-		query += " AND user_id = ?"
+		query += " AND user_id = $1"
 		args = append(args, filter.UserID)
 	}
 	
 	if filter.ItemID != "" {
-		query += " AND item_id = ?"
+		query += " AND item_id = $1"
 		args = append(args, filter.ItemID)
 	}
 	
 	if filter.Status != "" {
-		query += " AND status = ?"
+		query += " AND status = $1"
 		args = append(args, filter.Status)
 	}
 	
 	if filter.DateFrom != nil {
-		query += " AND start_date >= ?"
+		query += " AND start_date >= $1"
 		args = append(args, *filter.DateFrom)
 	}
 	
 	if filter.DateTo != nil {
-		query += " AND end_date <= ?"
+		query += " AND end_date <= $1"
 		args = append(args, *filter.DateTo)
 	}
 	
 	query += " ORDER BY created_at DESC"
 	
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
+		query += " LIMIT $1"
 		args = append(args, filter.Limit)
 		
 		if filter.Offset > 0 {
-			query += " OFFSET ?"
+			query += " OFFSET $1"
 			args = append(args, filter.Offset)
 		}
 	}
@@ -555,8 +555,8 @@ func (d *PostgreSQLDatabase) ListBookings(ctx context.Context, filter BookingFil
 func (d *PostgreSQLDatabase) CheckAvailability(ctx context.Context, itemID string, startDate, endDate time.Time) (bool, error) {
 	query := `
 		SELECT COUNT(*) FROM bookings 
-		WHERE item_id = ? AND status != 'cancelled' 
-		AND (start_date < ? AND end_date > ?)`
+		WHERE item_id = $1 AND status != 'cancelled' 
+		AND (start_date < $1 AND end_date > $2)`
 	
 	var count int
 	err := d.db.QueryRowContext(ctx, query, itemID, endDate, startDate).Scan(&count)
@@ -572,7 +572,7 @@ func (d *PostgreSQLDatabase) CreateAdminLog(ctx context.Context, log *AdminLog) 
 	query := `
 		INSERT INTO admin_logs (id, admin_user_id, action, target_type, target_id,
 			details, ip_address, user_agent, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`
 	
 	_, err := d.db.ExecContext(ctx, query,
 		log.ID, log.AdminUserID, log.Action, log.TargetType, log.TargetID,
@@ -586,43 +586,43 @@ func (d *PostgreSQLDatabase) ListAdminLogs(ctx context.Context, filter AdminLogF
 	args := []interface{}{}
 	
 	if filter.AdminUserID != "" {
-		query += " AND admin_user_id = ?"
+		query += " AND admin_user_id = $1"
 		args = append(args, filter.AdminUserID)
 	}
 	
 	if filter.Action != "" {
-		query += " AND action = ?"
+		query += " AND action = $1"
 		args = append(args, filter.Action)
 	}
 	
 	if filter.TargetType != "" {
-		query += " AND target_type = ?"
+		query += " AND target_type = $1"
 		args = append(args, filter.TargetType)
 	}
 	
 	if filter.TargetID != "" {
-		query += " AND target_id = ?"
+		query += " AND target_id = $1"
 		args = append(args, filter.TargetID)
 	}
 	
 	if filter.DateFrom != nil {
-		query += " AND created_at >= ?"
+		query += " AND created_at >= $1"
 		args = append(args, *filter.DateFrom)
 	}
 	
 	if filter.DateTo != nil {
-		query += " AND created_at <= ?"
+		query += " AND created_at <= $1"
 		args = append(args, *filter.DateTo)
 	}
 	
 	query += " ORDER BY created_at DESC"
 	
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
+		query += " LIMIT $1"
 		args = append(args, filter.Limit)
 		
 		if filter.Offset > 0 {
-			query += " OFFSET ?"
+			query += " OFFSET $1"
 			args = append(args, filter.Offset)
 		}
 	}
@@ -672,7 +672,7 @@ func (d *PostgreSQLDatabase) GetDashboardStats(ctx context.Context) (*DashboardS
 	currentMonth := time.Now().Format("2006-01")
 	err = d.db.QueryRowContext(ctx, `
 		SELECT COALESCE(SUM(total_price), 0) FROM bookings 
-		WHERE status = 'completed' AND DATE(created_at) >= ?
+		WHERE status = 'completed' AND DATE(created_at) >= $1
 	`, currentMonth+"-01").Scan(&stats.MonthlyRevenue)
 	
 	if err != nil {
@@ -688,7 +688,7 @@ func (d *PostgreSQLDatabase) GetSystemSetting(ctx context.Context, key string) (
 	query := `
 		SELECT id, setting_key, setting_value, setting_type, description, 
 			category, is_public, created_at, updated_at
-		FROM system_settings WHERE setting_key = ?`
+		FROM system_settings WHERE setting_key = $1`
 	
 	err := d.db.QueryRowContext(ctx, query, key).Scan(
 		&setting.ID, &setting.Key, &setting.Value, &setting.Type,
