@@ -33,8 +33,6 @@ import (
 	
 	// Database drivers
 	_ "github.com/lib/pq"
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 // Optimized Item model - removed duplicate fields for performance
@@ -744,39 +742,32 @@ func initializeApp() error {
 	jwtSecret = []byte(appConfig.JWTSecret)
 	
 	// Initialize database based on configuration
-	switch appConfig.Database.Type {
-	case "postgres", "mysql", "sqlite":
-		persistentDB = database.NewSQLDatabase(&appConfig.Database)
+	persistentDB = database.NewPostgreSQLDatabase(&appConfig.Database)
+	
+	// Connect to database
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	if err := persistentDB.Connect(ctx); err != nil {
+		return fmt.Errorf("failed to connect to PostgreSQL database: %w", err)
+	}
+	
+	log.Println("Connected to PostgreSQL database successfully")
+	
+	// Run migrations
+	if err := persistentDB.Migrate(ctx); err != nil {
+		log.Printf("Migration failed: %v", err)
+	} else {
+		log.Println("Database migrations completed")
 		
-		// Connect to database
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		
-		if err := persistentDB.Connect(ctx); err != nil {
-			log.Printf("Failed to connect to database: %v", err)
-			log.Println("Falling back to in-memory database")
-			persistentDB = nil
-		} else {
-			log.Printf("Connected to %s database successfully", appConfig.Database.Type)
-			
-			// Run migrations
-			if err := persistentDB.Migrate(ctx); err != nil {
-				log.Printf("Migration failed: %v", err)
+		// Seed initial data in development
+		if appConfig.IsDevelopment() {
+			if err := seeds.SeedData(ctx, persistentDB); err != nil {
+				log.Printf("Seeding failed: %v", err)
 			} else {
-				log.Println("Database migrations completed")
-				
-				// Seed initial data in development
-				if appConfig.IsDevelopment() {
-					if err := seeds.SeedData(ctx, persistentDB); err != nil {
-						log.Printf("Seeding failed: %v", err)
-					} else {
-						log.Println("Database seeded with sample data")
-					}
-				}
+				log.Println("Database seeded with sample data")
 			}
 		}
-	default:
-		log.Println("Using in-memory database")
 	}
 	
 	return nil
@@ -784,14 +775,13 @@ func initializeApp() error {
 
 // Enhanced admin dashboard with database integration
 func getEnhancedAdminDashboard(w http.ResponseWriter, r *http.Request) {
-	// If we have persistent database, use it for more accurate stats
+	// Use persistent database for accurate stats
 	if persistentDB != nil {
 		ctx := r.Context()
 		stats, err := persistentDB.GetDashboardStats(ctx)
 		if err != nil {
 			log.Printf("Failed to get dashboard stats from database: %v", err)
-			// Fall back to in-memory stats
-			getAdminDashboard(w, r)
+			respondWithError(w, http.StatusInternalServerError, "Failed to retrieve dashboard statistics")
 			return
 		}
 		
@@ -799,7 +789,7 @@ func getEnhancedAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{
 			"stats": stats,
 			"database": map[string]interface{}{
-				"type":      appConfig.Database.Type,
+				"type":      "postgresql",
 				"connected": true,
 				"host":      appConfig.Database.Host,
 				"port":      appConfig.Database.Port,
@@ -815,19 +805,19 @@ func getEnhancedAdminDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	// Fall back to original implementation
-	getAdminDashboard(w, r)
+	// No database available
+	respondWithError(w, http.StatusServiceUnavailable, "Database not available")
 }
 
 // Database management endpoints
 func getDatabaseStatus(w http.ResponseWriter, r *http.Request) {
 	if persistentDB == nil {
 		response := map[string]interface{}{
-			"type":      "in-memory",
-			"connected": true,
-			"message":   "Using in-memory database",
+			"type":      "error",
+			"connected": false,
+			"message":   "No database connection available",
 		}
-		respondWithJSON(w, http.StatusOK, response)
+		respondWithJSON(w, http.StatusServiceUnavailable, response)
 		return
 	}
 	
@@ -835,7 +825,7 @@ func getDatabaseStatus(w http.ResponseWriter, r *http.Request) {
 	err := persistentDB.Ping(ctx)
 	
 	response := map[string]interface{}{
-		"type":      appConfig.Database.Type,
+		"type":      "postgresql",
 		"connected": err == nil,
 		"host":      appConfig.Database.Host,
 		"port":      appConfig.Database.Port,
@@ -851,14 +841,13 @@ func getDatabaseStatus(w http.ResponseWriter, r *http.Request) {
 
 func getDatabaseMetrics(w http.ResponseWriter, r *http.Request) {
 	if persistentDB == nil {
-		respondWithError(w, http.StatusNotImplemented, "Database metrics not available for in-memory database")
+		respondWithError(w, http.StatusServiceUnavailable, "Database not available")
 		return
 	}
 	
-	// Placeholder for database metrics
-	// In a real implementation, you'd query database-specific metrics
+	// PostgreSQL metrics
 	metrics := map[string]interface{}{
-		"type": appConfig.Database.Type,
+		"type": "postgresql",
 		"connection_pool": map[string]interface{}{
 			"max_open":     appConfig.Database.MaxOpenConns,
 			"max_idle":     appConfig.Database.MaxIdleConns,
@@ -877,7 +866,7 @@ func getDatabaseMetrics(w http.ResponseWriter, r *http.Request) {
 // System settings management
 func getSystemSettings(w http.ResponseWriter, r *http.Request) {
 	if persistentDB == nil {
-		respondWithError(w, http.StatusNotImplemented, "System settings not available for in-memory database")
+		respondWithError(w, http.StatusServiceUnavailable, "Database not available")
 		return
 	}
 	
@@ -893,7 +882,7 @@ func getSystemSettings(w http.ResponseWriter, r *http.Request) {
 
 func updateSystemSetting(w http.ResponseWriter, r *http.Request) {
 	if persistentDB == nil {
-		respondWithError(w, http.StatusNotImplemented, "System settings not available for in-memory database")
+		respondWithError(w, http.StatusServiceUnavailable, "Database not available")
 		return
 	}
 	
@@ -942,12 +931,11 @@ func updateSystemSetting(w http.ResponseWriter, r *http.Request) {
 // Helper function to create admin log entries
 func createAdminLogEntry(ctx context.Context, adminUserID, action, targetType, targetID, details string) {
 	if persistentDB == nil {
-		// Fall back to in-memory logging
-		createAdminLog(adminUserID, action, targetType, targetID, details)
+		log.Printf("Cannot create admin log: database not available")
 		return
 	}
 	
-	log := &database.AdminLog{
+	adminLog := &database.AdminLog{
 		ID:          generateID(),
 		AdminUserID: adminUserID,
 		Action:      action,
@@ -957,9 +945,8 @@ func createAdminLogEntry(ctx context.Context, adminUserID, action, targetType, t
 		CreatedAt:   time.Now(),
 	}
 	
-	if err := persistentDB.CreateAdminLog(ctx, log); err != nil {
-		// Fall back to in-memory if persistent fails
-		createAdminLog(adminUserID, action, targetType, targetID, details)
+	if err := persistentDB.CreateAdminLog(ctx, adminLog); err != nil {
+		log.Printf("Failed to create admin log: %v", err)
 	}
 }
 
@@ -3193,7 +3180,11 @@ func enhancedHealthCheck(w http.ResponseWriter, r *http.Request) {
 			health["database"] = map[string]string{"status": "healthy"}
 		}
 	} else {
-		health["database"] = map[string]string{"status": "in-memory"}
+		health["database"] = map[string]interface{}{
+			"status": "disconnected",
+			"error":  "Database not initialized",
+		}
+		health["status"] = "degraded"
 	}
 	
 	// Memory usage
@@ -3490,13 +3481,6 @@ func main() {
 	
 	// Initialize caches for performance optimization
 	initializeCaches()
-	
-	// Initialize sample data (fallback for in-memory database)
-	if persistentDB == nil {
-		initSampleData()
-		// Build initial search cache
-		updateSearchCache()
-	}
 
 	// Setup router
 	setupRouter()
@@ -3505,22 +3489,16 @@ func main() {
 	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
 		// Start Lambda handler
 		fmt.Println("BorrowHub backend starting as Lambda function")
-		fmt.Printf("Database: %s\n", appConfig.Database.Type)
-		fmt.Println("Sample users:")
-		fmt.Println("- john@example.com / password123")
-		fmt.Println("- jane@example.com / password123")
-		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
+		fmt.Printf("Database: PostgreSQL\n")
+		fmt.Println("Production deployment ready")
 		
 		lambda.Start(lambdaHandler)
 	} else {
 		// Start HTTP server for local development
 		fmt.Printf("BorrowHub backend starting as HTTP server on :%d\n", appConfig.Port)
 		fmt.Printf("Environment: %s\n", appConfig.Environment)
-		fmt.Printf("Database: %s\n", appConfig.Database.Type)
-		fmt.Println("Sample users:")
-		fmt.Println("- john@example.com / password123")
-		fmt.Println("- jane@example.com / password123")
-		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
+		fmt.Printf("Database: PostgreSQL\n")
+		fmt.Printf("Database Host: %s:%d\n", appConfig.Database.Host, appConfig.Database.Port)
 		
 		if persistentDB != nil {
 			defer persistentDB.Close()
