@@ -1,0 +1,99 @@
+version: '3.8'
+
+services:
+  # PostgreSQL for production-like development
+  postgres:
+    image: postgres:15-alpine
+    container_name: borrowhub-postgres
+    environment:
+      POSTGRES_DB: borrowhub
+      POSTGRES_USER: borrowhub
+      POSTGRES_PASSWORD: password123
+      POSTGRES_INITDB_ARGS: --encoding=UTF-8 --lc-collate=C --lc-ctype=C
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - borrowhub
+
+  # MySQL for testing compatibility
+  mysql:
+    image: mysql:8.0
+    container_name: borrowhub-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: borrowhub
+      MYSQL_USER: borrowhub
+      MYSQL_PASSWORD: password123
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./database/init:/docker-entrypoint-initdb.d
+    networks:
+      - borrowhub
+    command: --default-authentication-plugin=mysql_native_password
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: borrowhub-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - borrowhub
+    command: redis-server --appendonly yes
+
+  # pgAdmin for PostgreSQL management
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: borrowhub-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@borrowhub.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+      PGADMIN_CONFIG_SERVER_MODE: 'False'
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    networks:
+      - borrowhub
+    depends_on:
+      - postgres
+
+  # phpMyAdmin for MySQL management
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin:latest
+    container_name: borrowhub-phpmyadmin
+    environment:
+      PMA_HOST: mysql
+      PMA_PORT: 3306
+      PMA_USER: borrowhub
+      PMA_PASSWORD: password123
+      MYSQL_ROOT_PASSWORD: rootpassword
+    ports:
+      - "8080:80"
+    networks:
+      - borrowhub
+    depends_on:
+      - mysql
+
+volumes:
+  postgres_data:
+    driver: local
+  mysql_data:
+    driver: local
+  redis_data:
+    driver: local
+  pgadmin_data:
+    driver: local
+
+networks:
+  borrowhub:
+    driver: bridge

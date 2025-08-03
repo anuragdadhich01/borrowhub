@@ -92,8 +92,8 @@ export default defineConfig({
         },
         // Optimize entry file names
         entryFileNames: 'assets/[name]-[hash].js',
-        // Ensure proper format
-        format: 'es'
+        // Ensure proper format and MIME type
+        format: 'es',
       },
     },
     

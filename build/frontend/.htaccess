@@ -1,0 +1,66 @@
+# BorrowHub Production .htaccess Configuration
+# Fixes MIME type issues and adds security headers
+
+# Enable rewrite engine
+RewriteEngine On
+
+# Force HTTPS
+RewriteCond %{HTTPS} off
+RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+# Security Headers
+Header always set X-Frame-Options "DENY"
+Header always set X-Content-Type-Options "nosniff"
+Header always set X-XSS-Protection "1; mode=block"
+Header always set Referrer-Policy "strict-origin-when-cross-origin"
+Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+Header always set Permissions-Policy "camera=(), microphone=(), geolocation=self"
+
+# Content Security Policy
+Header always set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://checkout.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https: wss:; media-src 'self' https: blob:;"
+
+# MIME Type Configuration - Critical Fix for Module Loading
+AddType application/javascript .js
+AddType application/javascript .mjs
+AddType application/javascript .jsx
+AddType text/css .css
+AddType application/json .json
+AddType application/manifest+json .webmanifest
+AddType image/svg+xml .svg
+
+# CORS Headers for API calls
+Header always set Access-Control-Allow-Origin "https://borrowhubb.live"
+Header always set Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+Header always set Access-Control-Allow-Headers "Accept, Authorization, Content-Type, X-CSRF-Token, X-Requested-With"
+Header always set Access-Control-Allow-Credentials "true"
+
+# Cache Control
+<filesMatch "\.(css|js|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$">
+    ExpiresActive On
+    ExpiresDefault "access plus 1 year"
+    Header set Cache-Control "public, immutable"
+</filesMatch>
+
+# Service Worker - No Cache
+<files "sw.js">
+    ExpiresActive On
+    ExpiresDefault "access plus 0 seconds"
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+</files>
+
+# PWA Manifest - Short Cache
+<files "manifest.json">
+    ExpiresActive On
+    ExpiresDefault "access plus 1 day"
+    Header set Cache-Control "public"
+</files>
+
+# React Router - Handle client-side routing
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+RewriteCond %{REQUEST_URI} !^/api/
+RewriteRule . /index.html [L]
+
+# Handle CORS preflight requests
+RewriteCond %{REQUEST_METHOD} OPTIONS
+RewriteRule ^(.*)$ $1 [R=200,L]
