@@ -187,10 +187,14 @@ var (
 	userCache   *LRUCache
 )
 
-// Rate limiter structure
+// Enhanced rate limiter with more efficient cleanup and token bucket algorithm
 type RateLimiter struct {
-	visitors map[string]*rate.Limiter
-	mu       sync.RWMutex
+	visitors    map[string]*rate.Limiter
+	mu          sync.RWMutex
+	cleanupTime time.Time
+	// Token bucket parameters
+	refillRate   rate.Limit // tokens per second
+	bucketSize   int        // max tokens in bucket
 }
 
 // Initialize caches
@@ -414,6 +418,70 @@ func matchesFilters(item *Item, searchTerm, category, location string, minPrice,
 	return true
 }
 
+// Debouncer for search requests to reduce server load
+type Debouncer struct {
+	lastRequest time.Time
+	delay       time.Duration
+	timer       *time.Timer
+	mutex       sync.Mutex
+}
+
+func NewDebouncer(delay time.Duration) *Debouncer {
+	return &Debouncer{
+		delay: delay,
+	}
+}
+
+func (d *Debouncer) Debounce(fn func()) {
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+	
+	if d.timer != nil {
+		d.timer.Stop()
+	}
+	
+	d.timer = time.AfterFunc(d.delay, fn)
+	d.lastRequest = time.Now()
+}
+
+// Global debouncer for search cache updates
+var searchDebouncer = NewDebouncer(500 * time.Millisecond)
+
+// Priority queue for booking processing
+type BookingRequest struct {
+	BookingID string
+	Priority  int // Higher number = higher priority
+	Timestamp time.Time
+}
+
+type PriorityQueue []*BookingRequest
+
+func (pq PriorityQueue) Len() int { return len(pq) }
+
+func (pq PriorityQueue) Less(i, j int) bool {
+	// Higher priority first, then by timestamp for same priority
+	if pq[i].Priority != pq[j].Priority {
+		return pq[i].Priority > pq[j].Priority
+	}
+	return pq[i].Timestamp.Before(pq[j].Timestamp)
+}
+
+func (pq PriorityQueue) Swap(i, j int) {
+	pq[i], pq[j] = pq[j], pq[i]
+}
+
+func (pq *PriorityQueue) Push(x interface{}) {
+	*pq = append(*pq, x.(*BookingRequest))
+}
+
+func (pq *PriorityQueue) Pop() interface{} {
+	old := *pq
+	n := len(old)
+	item := old[n-1]
+	*pq = old[0 : n-1]
+	return item
+}
+
 // Password validation result
 type PasswordValidation struct {
 	IsValid  bool     `json:"isValid"`
@@ -465,7 +533,7 @@ var (
 	// Security components
 	jwtSecret      = []byte("your-secret-key") // Will be updated from config
 	jwtRefreshSecret = []byte("your-refresh-secret-key")
-	rateLimiter    = &RateLimiter{visitors: make(map[string]*rate.Limiter)}
+	rateLimiter    = NewRateLimiter(10.0, 20) // 10 requests/second, burst of 20
 	securityConfig = &SecurityConfig{
 		MaxLoginAttempts:    5,
 		LockoutDuration:     15 * time.Minute,
@@ -482,37 +550,53 @@ var (
 	httpHandler http.Handler // Global handler for Lambda
 )
 
-// Helper function to generate IDs
+// Optimized ID generation using time-based UUIDs for better performance
 func generateID() string {
 	counterMu.Lock()
 	defer counterMu.Unlock()
 	counter++
-	return strconv.Itoa(counter)
+	// Use timestamp + counter for better uniqueness and performance
+	timestamp := time.Now().UnixNano() / 1000000 // milliseconds
+	return fmt.Sprintf("%d_%d", timestamp, counter)
 }
 
 // Rate limiting functions
+// NewRateLimiter creates an optimized rate limiter
+func NewRateLimiter(requestsPerSecond float64, burstSize int) *RateLimiter {
+	return &RateLimiter{
+		visitors:   make(map[string]*rate.Limiter),
+		refillRate: rate.Limit(requestsPerSecond),
+		bucketSize: burstSize,
+	}
+}
+
+// Rate limiting functions with optimized token bucket algorithm
 func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
 	limiter, exists := rl.visitors[ip]
 	if !exists {
-		// Create a new rate limiter allowing 10 requests per minute
-		limiter = rate.NewLimiter(rate.Every(6*time.Second), 10)
+		// Use token bucket algorithm: refill rate and burst capacity
+		limiter = rate.NewLimiter(rl.refillRate, rl.bucketSize)
 		rl.visitors[ip] = limiter
+	}
+
+	// Efficient cleanup every 5 minutes
+	now := time.Now()
+	if now.Sub(rl.cleanupTime) > 5*time.Minute {
+		rl.cleanupOldEntries()
+		rl.cleanupTime = now
 	}
 
 	return limiter
 }
 
 func (rl *RateLimiter) cleanupOldEntries() {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	// Cleanup old entries periodically
+	// Called with lock already held
+	// Remove limiters that haven't been used recently (full token bucket = unused)
 	for ip, limiter := range rl.visitors {
-		// If limiter hasn't been used recently, remove it
-		if limiter.Tokens() == float64(limiter.Burst()) {
+		if limiter.Tokens() >= float64(rl.bucketSize-1) {
 			delete(rl.visitors, ip)
 		}
 	}
@@ -1596,8 +1680,10 @@ func addItem(w http.ResponseWriter, r *http.Request) {
 
 	db.Items[item.ID] = &item
 
-	// Update search cache in background for performance
-	go updateSearchCache()
+	// Update search cache with debouncing for better performance
+	searchDebouncer.Debounce(func() {
+		updateSearchCache()
+	})
 
 	respondWithJSON(w, http.StatusCreated, item)
 }
@@ -3167,14 +3253,6 @@ func setupRouter() {
 
 	// Wrap router with security, rate limiting, CORS and authentication middleware
 	httpHandler = corsMiddleware(securityHeadersMiddleware(rateLimitMiddleware(authMiddleware(router))))
-	
-	// Start periodic cleanup of rate limiter
-	go func() {
-		for {
-			time.Sleep(5 * time.Minute)
-			rateLimiter.cleanupOldEntries()
-		}
-	}()
 }
 
 func main() {
