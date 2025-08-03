@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import {
   Card,
   CardMedia,
@@ -20,14 +20,14 @@ import {
 } from '@mui/icons-material';
 import { Link as RouterLink } from 'react-router-dom';
 
-const ModernItemCard = ({ item, onWishlistToggle, isWishlisted = false }) => {
-  const handleWishlistClick = (e) => {
+const ModernItemCard = React.memo(({ item, onWishlistToggle, isWishlisted = false }) => {
+  const handleWishlistClick = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     if (onWishlistToggle) {
       onWishlistToggle(item.id);
     }
-  };
+  }, [onWishlistToggle, item.id]);
 
   // Mock data for demonstration
   const mockRating = 4.5;
@@ -221,6 +221,6 @@ const ModernItemCard = ({ item, onWishlistToggle, isWishlisted = false }) => {
       </CardContent>
     </Card>
   );
-};
+});
 
 export default ModernItemCard;

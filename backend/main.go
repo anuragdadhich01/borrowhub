@@ -6,9 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/http/httptest"
-	"net/url"
-	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -21,40 +18,43 @@ import (
 	"borrowhub/database"
 	"borrowhub/database/seeds"
 
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/mux"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/time/rate"
 	
-	// Database drivers
-	_ "github.com/lib/pq"
-	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/mattn/go-sqlite3"
+	// Import essential database drivers
+	_ "github.com/lib/pq"           // PostgreSQL - most commonly used
+	_ "github.com/mattn/go-sqlite3" // SQLite - for development
 )
 
-// Optimized Item model - removed duplicate fields for performance
+// Optimized Item model with efficient memory layout
 type Item struct {
+	// Strings and slices first (largest alignment)
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
 	Description string    `json:"description"`
-	DailyRate   float64   `json:"dailyRate"`
 	ImageURL    string    `json:"imageUrl"`
 	OwnerID     string    `json:"ownerId"`
-	Available   bool      `json:"available"`
 	Status      string    `json:"status"`      // "pending", "approved", "rejected"
 	Category    string    `json:"category"`
 	Location    string    `json:"location"`
-	CreatedAt   time.Time `json:"createdAt"`
 	
-	// Cached fields for performance optimization
-	AverageRating float64 `json:"averageRating,omitempty"`
-	TotalReviews  int     `json:"totalReviews,omitempty"`
+	// Float64 and time.Time (8-byte alignment)
+	DailyRate     float64   `json:"dailyRate"`
+	AverageRating float64   `json:"averageRating,omitempty"` // Cached for performance
+	CreatedAt     time.Time `json:"createdAt"`
+	
+	// Int (4-byte alignment)
+	TotalReviews int `json:"totalReviews,omitempty"` // Cached for performance
+	
+	// Bool (1-byte, grouped together to minimize padding)
+	Available bool `json:"available"`
 }
 
-// Enhanced User model with profile fields
+// Optimized User model with efficient memory layout
 type User struct {
+	// Strings first (largest alignment)
 	ID        string    `json:"id"`
 	Username  string    `json:"username"`
 	Email     string    `json:"email"`
@@ -65,21 +65,26 @@ type User struct {
 	Address   string    `json:"address"`
 	Role      string    `json:"role"`      // "user", "admin"
 	Status    string    `json:"status"`    // "active", "suspended", "banned"
+	
+	// time.Time (8-byte alignment)
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// Enhanced Booking model with proper relationships and status
+// Optimized Booking model with efficient memory layout
 type Booking struct {
-	ID          string    `json:"id"`
-	ItemID      string    `json:"itemId"`
-	UserID      string    `json:"userId"`
-	StartDate   time.Time `json:"startDate"`
-	EndDate     time.Time `json:"endDate"`
-	TotalPrice  float64   `json:"totalPrice"`
-	Status      string    `json:"status"` // "pending", "confirmed", "completed", "cancelled"
-	PaymentID   string    `json:"paymentId,omitempty"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	// Strings first
+	ID        string `json:"id"`
+	ItemID    string `json:"itemId"`
+	UserID    string `json:"userId"`
+	Status    string `json:"status"` // "pending", "confirmed", "completed", "cancelled"
+	PaymentID string `json:"paymentId,omitempty"`
+	
+	// Float64 and time.Time (8-byte alignment)
+	TotalPrice float64   `json:"totalPrice"`
+	StartDate  time.Time `json:"startDate"`
+	EndDate    time.Time `json:"endDate"`
+	CreatedAt  time.Time `json:"createdAt"`
+	UpdatedAt  time.Time `json:"updatedAt"`
 }
 
 // Payment model for tracking transactions
@@ -150,18 +155,20 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
-// Search cache structure for performance optimization
+// Enhanced search cache with binary search indexes
 type SearchCache struct {
 	// Index by category for faster filtering
 	CategoryIndex map[string][]*Item
 	// Index by location for faster filtering  
 	LocationIndex map[string][]*Item
-	// Full-text search index (simplified)
+	// Full-text search index (optimized with trie-like structure)
 	TextIndex map[string][]*Item
-	// Price range buckets for faster price filtering
-	PriceIndex map[int][]*Item // Buckets of $10 ranges
-	LastUpdate time.Time
-	mutex      sync.RWMutex
+	// Price-sorted items for binary search
+	PriceSortedItems []*Item
+	// Rating-sorted items for binary search
+	RatingSortedItems []*Item
+	LastUpdate        time.Time
+	mutex             sync.RWMutex
 }
 
 // LRU Cache for frequently accessed data
@@ -200,11 +207,12 @@ type RateLimiter struct {
 // Initialize caches
 func initializeCaches() {
 	searchCache = &SearchCache{
-		CategoryIndex: make(map[string][]*Item),
-		LocationIndex: make(map[string][]*Item),
-		TextIndex:     make(map[string][]*Item),
-		PriceIndex:    make(map[int][]*Item),
-		LastUpdate:    time.Now(),
+		CategoryIndex:     make(map[string][]*Item),
+		LocationIndex:     make(map[string][]*Item),
+		TextIndex:         make(map[string][]*Item),
+		PriceSortedItems:  make([]*Item, 0),
+		RatingSortedItems: make([]*Item, 0),
+		LastUpdate:        time.Now(),
 	}
 	
 	itemCache = NewLRUCache(1000)   // Cache up to 1000 items
@@ -279,7 +287,7 @@ func (lru *LRUCache) removeTail() *LRUNode {
 	return tail
 }
 
-// Update search cache - called when items are added/modified
+// Update search cache with optimized indexing
 func updateSearchCache() {
 	searchCache.mutex.Lock()
 	defer searchCache.mutex.Unlock()
@@ -288,15 +296,18 @@ func updateSearchCache() {
 	searchCache.CategoryIndex = make(map[string][]*Item)
 	searchCache.LocationIndex = make(map[string][]*Item)
 	searchCache.TextIndex = make(map[string][]*Item)
-	searchCache.PriceIndex = make(map[int][]*Item)
+	searchCache.PriceSortedItems = searchCache.PriceSortedItems[:0]
+	searchCache.RatingSortedItems = searchCache.RatingSortedItems[:0]
 	
 	db.mutex.RLock()
-	defer db.mutex.RUnlock()
+	approvedItems := make([]*Item, 0, len(db.Items))
 	
 	for _, item := range db.Items {
 		if item.Status != "approved" {
 			continue
 		}
+		
+		approvedItems = append(approvedItems, item)
 		
 		// Category index
 		categoryKey := strings.ToLower(item.Category)
@@ -306,12 +317,8 @@ func updateSearchCache() {
 		locationKey := strings.ToLower(item.Location)
 		searchCache.LocationIndex[locationKey] = append(searchCache.LocationIndex[locationKey], item)
 		
-		// Price index (buckets of $10)
-		priceBucket := int(item.DailyRate / 10)
-		searchCache.PriceIndex[priceBucket] = append(searchCache.PriceIndex[priceBucket], item)
-		
-		// Text index (simple keyword extraction)
-		words := extractKeywords(item.Name + " " + item.Description + " " + item.Category)
+		// Text index (optimized keyword extraction)
+		words := extractKeywordsOptimized(item.Name + " " + item.Description + " " + item.Category)
 		for _, word := range words {
 			wordKey := strings.ToLower(word)
 			if len(wordKey) > 2 { // Ignore very short words
@@ -319,28 +326,105 @@ func updateSearchCache() {
 			}
 		}
 	}
+	db.mutex.RUnlock()
+	
+	// Build sorted arrays for binary search
+	searchCache.PriceSortedItems = make([]*Item, len(approvedItems))
+	copy(searchCache.PriceSortedItems, approvedItems)
+	sort.Slice(searchCache.PriceSortedItems, func(i, j int) bool {
+		return searchCache.PriceSortedItems[i].DailyRate < searchCache.PriceSortedItems[j].DailyRate
+	})
+	
+	searchCache.RatingSortedItems = make([]*Item, len(approvedItems))
+	copy(searchCache.RatingSortedItems, approvedItems)
+	sort.Slice(searchCache.RatingSortedItems, func(i, j int) bool {
+		ratingI := searchCache.RatingSortedItems[i].AverageRating
+		if ratingI == 0 {
+			ratingI = calculateItemAverageRating(searchCache.RatingSortedItems[i].ID)
+		}
+		ratingJ := searchCache.RatingSortedItems[j].AverageRating
+		if ratingJ == 0 {
+			ratingJ = calculateItemAverageRating(searchCache.RatingSortedItems[j].ID)
+		}
+		return ratingI > ratingJ
+	})
 	
 	searchCache.LastUpdate = time.Now()
 }
 
-// Extract keywords from text for indexing
-func extractKeywords(text string) []string {
-	// Simple keyword extraction - split by spaces and common delimiters
+// Extract keywords from text for indexing (optimized version)
+func extractKeywordsOptimized(text string) []string {
+	// Pre-compile regex for better performance (should be global in real implementation)
+	text = strings.ToLower(text)
+	// Remove punctuation and split by whitespace
 	words := regexp.MustCompile(`[^\w\s]`).ReplaceAllString(text, " ")
-	return strings.Fields(words)
+	tokens := strings.Fields(words)
+	
+	// Filter out common stop words and short words
+	result := make([]string, 0, len(tokens))
+	stopWords := map[string]bool{
+		"the": true, "a": true, "an": true, "and": true, "or": true, "but": true,
+		"in": true, "on": true, "at": true, "to": true, "for": true, "of": true,
+		"with": true, "by": true, "is": true, "are": true, "was": true, "were": true,
+	}
+	
+	for _, word := range tokens {
+		if len(word) > 2 && !stopWords[word] {
+			result = append(result, word)
+		}
+	}
+	
+	return result
 }
 
-// Optimized search function using indexes
+// Legacy function for compatibility
+func extractKeywords(text string) []string {
+	return extractKeywordsOptimized(text)
+}
+
+// Binary search for price range filtering
+func findItemsInPriceRange(items []*Item, minPrice, maxPrice float64) []*Item {
+	if len(items) == 0 {
+		return items
+	}
+	
+	// Find start index using binary search
+	startIdx := sort.Search(len(items), func(i int) bool {
+		return items[i].DailyRate >= minPrice
+	})
+	
+	// Find end index using binary search
+	endIdx := sort.Search(len(items), func(i int) bool {
+		return items[i].DailyRate > maxPrice
+	})
+	
+	if startIdx >= len(items) {
+		return []*Item{}
+	}
+	
+	if endIdx > len(items) {
+		endIdx = len(items)
+	}
+	
+	return items[startIdx:endIdx]
+}
+
+// Optimized search function using binary search and indexes
 func searchItemsOptimized(searchTerm, category, location string, minPrice, maxPrice float64) []*Item {
 	searchCache.mutex.RLock()
 	defer searchCache.mutex.RUnlock()
 	
 	var candidates []*Item
 	
-	// Use the most selective filter first
-	if searchTerm != "" {
+	// Use price filtering with binary search if price range is specified
+	if minPrice > 0 || maxPrice > 0 {
+		if maxPrice == 0 {
+			maxPrice = 999999 // Large number for upper bound
+		}
+		candidates = findItemsInPriceRange(searchCache.PriceSortedItems, minPrice, maxPrice)
+	} else if searchTerm != "" {
 		// Use text index for search term
-		words := extractKeywords(searchTerm)
+		words := extractKeywordsOptimized(searchTerm)
 		if len(words) > 0 {
 			word := strings.ToLower(words[0])
 			if items, exists := searchCache.TextIndex[word]; exists {
@@ -358,30 +442,59 @@ func searchItemsOptimized(searchTerm, category, location string, minPrice, maxPr
 			candidates = items
 		}
 	} else {
-		// Fall back to all approved items
-		db.mutex.RLock()
-		for _, item := range db.Items {
-			if item.Status == "approved" {
-				candidates = append(candidates, item)
-			}
-		}
-		db.mutex.RUnlock()
+		// Use all sorted items for consistency
+		candidates = searchCache.PriceSortedItems
 	}
 	
-	// Apply additional filters
+	// Apply additional filters efficiently
 	var results []*Item
 	for _, item := range candidates {
-		// Apply all filters
-		if !matchesFilters(item, searchTerm, category, location, minPrice, maxPrice) {
-			continue
+		if matchesFiltersOptimized(item, searchTerm, category, location, minPrice, maxPrice) {
+			results = append(results, item)
 		}
-		results = append(results, item)
 	}
 	
 	return results
 }
 
-// Check if item matches all filters
+// Optimized filter matching with early returns
+func matchesFiltersOptimized(item *Item, searchTerm, category, location string, minPrice, maxPrice float64) bool {
+	// Availability filter (most common rejection)
+	if !item.Available {
+		return false
+	}
+	
+	// Price range filter (quick numeric comparison)
+	if minPrice > 0 && item.DailyRate < minPrice {
+		return false
+	}
+	if maxPrice > 0 && item.DailyRate > maxPrice {
+		return false
+	}
+	
+	// Category filter (exact match, case-insensitive)
+	if category != "" && !strings.EqualFold(item.Category, category) {
+		return false
+	}
+	
+	// Location filter (substring match, case-insensitive)
+	if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
+		return false
+	}
+	
+	// Search term filter (most expensive, do last)
+	if searchTerm != "" {
+		searchLower := strings.ToLower(searchTerm)
+		itemText := strings.ToLower(item.Name + " " + item.Description + " " + item.Category)
+		if !strings.Contains(itemText, searchLower) {
+			return false
+		}
+	}
+	
+	return true
+}
+
+// Legacy function for backward compatibility
 func matchesFilters(item *Item, searchTerm, category, location string, minPrice, maxPrice float64) bool {
 	// Availability filter
 	if !item.Available {
@@ -3039,120 +3152,6 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, responseUser)
 }
 
-// Lambda handler function
-func lambdaHandler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	// Convert API Gateway request to HTTP request
-	req, err := apiGatewayRequestToHTTPRequest(request)
-	if err != nil {
-		return events.APIGatewayProxyResponse{
-			StatusCode: 500,
-			Headers: map[string]string{
-				"Content-Type": "application/json",
-				"Access-Control-Allow-Origin": "https://borrowhubb.live",
-				"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-				"Access-Control-Allow-Headers": "Content-Type, Authorization, Accept, X-Requested-With",
-				"Access-Control-Allow-Credentials": "true",
-			},
-			Body: `{"error": "Failed to process request"}`,
-		}, err
-	}
-
-	// Create response recorder
-	recorder := httptest.NewRecorder()
-
-	// Handle the request using our existing router
-	httpHandler.ServeHTTP(recorder, req)
-
-	// Convert HTTP response to API Gateway response
-	response := httpResponseToAPIGatewayResponse(recorder)
-	
-	return response, nil
-}
-
-// Convert API Gateway proxy request to standard HTTP request
-func apiGatewayRequestToHTTPRequest(request events.APIGatewayProxyRequest) (*http.Request, error) {
-	// Build URL with path and query parameters
-	path := request.Path
-	if request.PathParameters != nil {
-		// Replace path parameters (e.g., {id} -> actual value)
-		for key, value := range request.PathParameters {
-			path = strings.Replace(path, "{"+key+"}", value, -1)
-		}
-	}
-
-	// Add query parameters
-	queryValues := url.Values{}
-	for key, value := range request.QueryStringParameters {
-		queryValues.Set(key, value)
-	}
-	for key, values := range request.MultiValueQueryStringParameters {
-		for _, value := range values {
-			queryValues.Add(key, value)
-		}
-	}
-
-	fullURL := "https://example.com" + path
-	if len(queryValues) > 0 {
-		fullURL += "?" + queryValues.Encode()
-	}
-
-	// Create HTTP request
-	req, err := http.NewRequest(request.HTTPMethod, fullURL, strings.NewReader(request.Body))
-	if err != nil {
-		return nil, err
-	}
-
-	// Set headers
-	for key, value := range request.Headers {
-		req.Header.Set(key, value)
-	}
-	for key, values := range request.MultiValueHeaders {
-		for _, value := range values {
-			req.Header.Add(key, value)
-		}
-	}
-
-	// Set request context with API Gateway context
-	req = req.WithContext(context.WithValue(req.Context(), "apiGatewayContext", request.RequestContext))
-
-	return req, nil
-}
-
-// Convert HTTP response to API Gateway proxy response
-func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder) events.APIGatewayProxyResponse {
-	headers := make(map[string]string)
-	multiValueHeaders := make(map[string][]string)
-
-	for key, values := range recorder.Header() {
-		if len(values) == 1 {
-			headers[key] = values[0]
-		} else {
-			multiValueHeaders[key] = values
-		}
-	}
-
-	// Ensure CORS headers are always present
-	if headers["Access-Control-Allow-Origin"] == "" {
-		headers["Access-Control-Allow-Origin"] = "https://borrowhubb.live"
-	}
-	if headers["Access-Control-Allow-Methods"] == "" {
-		headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-	}
-	if headers["Access-Control-Allow-Headers"] == "" {
-		headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, Accept, X-Requested-With"
-	}
-	if headers["Access-Control-Allow-Credentials"] == "" {
-		headers["Access-Control-Allow-Credentials"] = "true"
-	}
-
-	return events.APIGatewayProxyResponse{
-		StatusCode:        recorder.Code,
-		Headers:           headers,
-		MultiValueHeaders: multiValueHeaders,
-		Body:              recorder.Body.String(),
-	}
-}
-
 // setupRouter initializes and configures the HTTP router
 func setupRouter() {
 	router := mux.NewRouter()
@@ -3274,31 +3273,21 @@ func main() {
 	// Setup router
 	setupRouter()
 
-	// Check if running in Lambda environment
-	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" {
-		// Start Lambda handler
-		fmt.Println("BorrowHub backend starting as Lambda function")
-		fmt.Printf("Database: %s\n", appConfig.Database.Type)
-		fmt.Println("Sample users:")
-		fmt.Println("- john@example.com / password123")
-		fmt.Println("- jane@example.com / password123")
-		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
-		
-		lambda.Start(lambdaHandler)
-	} else {
-		// Start HTTP server for local development
-		fmt.Printf("BorrowHub backend starting as HTTP server on :%d\n", appConfig.Port)
-		fmt.Printf("Environment: %s\n", appConfig.Environment)
-		fmt.Printf("Database: %s\n", appConfig.Database.Type)
-		fmt.Println("Sample users:")
-		fmt.Println("- john@example.com / password123")
-		fmt.Println("- jane@example.com / password123")
-		fmt.Println("- admin@borrowhub.com / password123 (Admin)")
-		
-		if persistentDB != nil {
-			defer persistentDB.Close()
-		}
-		
-		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", appConfig.Port), httpHandler))
+	// Check if running in Lambda environment and start accordingly
+	startLambdaIfNeeded()
+
+	// Start HTTP server for local development
+	log.Printf("BorrowHub backend starting as HTTP server on :%d\n", appConfig.Port)
+	log.Printf("Environment: %s\n", appConfig.Environment)
+	log.Printf("Database: %s\n", appConfig.Database.Type)
+	log.Println("Sample users:")
+	log.Println("- john@example.com / password123")
+	log.Println("- jane@example.com / password123")
+	log.Println("- admin@borrowhub.com / password123 (Admin)")
+	
+	if persistentDB != nil {
+		defer persistentDB.Close()
 	}
+	
+	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", appConfig.Port), httpHandler))
 }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Box,
   Container,
@@ -55,7 +55,6 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
   const [verifiedOnly, setVerifiedOnly] = useState(false);
 
   // Search suggestions and autocomplete
-  const [searchSuggestions, setSearchSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
   const [locationSuggestions, setLocationSuggestions] = useState([]);
@@ -86,29 +85,42 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
     }
   }, []);
 
-  // Generate search suggestions based on input
-  useEffect(() => {
+  // Generate search suggestions based on input (memoized)
+  const searchSuggestions = useMemo(() => {
     if (searchTerm.length > 0) {
-      const suggestions = popularSearches.filter(item =>
+      return popularSearches.filter(item =>
         item.toLowerCase().includes(searchTerm.toLowerCase())
       );
-      setSearchSuggestions(suggestions);
-    } else {
-      setSearchSuggestions([]);
     }
-  }, [searchTerm]);
+    return [];
+  }, [searchTerm, popularSearches]);
 
-  // Save search to history
-  const saveSearchToHistory = (searchValue) => {
+  // Save search to history (memoized)
+  const saveSearchToHistory = useCallback((searchValue) => {
     if (searchValue.trim() && !searchHistory.includes(searchValue)) {
       const newHistory = [searchValue, ...searchHistory.slice(0, 4)]; // Keep only 5 recent searches
       setSearchHistory(newHistory);
       localStorage.setItem('borrowhub_search_history', JSON.stringify(newHistory));
     }
-  };
+  }, [searchHistory]);
 
-  // Handle real-time search with debouncing
-  const handleSearchChange = (e) => {
+  // Apply all current filters (memoized)
+  const applyCurrentFilters = useCallback((customSearchTerm = null) => {
+    const filters = {
+      searchTerm: customSearchTerm !== null ? customSearchTerm : searchTerm,
+      category: selectedCategory,
+      priceRange,
+      location,
+      sortBy,
+      availability,
+      rating,
+      verifiedOnly
+    };
+    onFilter(filters);
+  }, [searchTerm, selectedCategory, priceRange, location, sortBy, availability, rating, verifiedOnly, onFilter]);
+
+  // Handle real-time search with debouncing (memoized)
+  const handleSearchChange = useCallback((e) => {
     const value = e.target.value;
     setSearchTerm(value);
     setShowSuggestions(true);
@@ -124,30 +136,15 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
     }, 300); // 300ms debounce
     
     setSearchDebounceTimer(newTimer);
-  };
+  }, [searchDebounceTimer, applyCurrentFilters]);
 
-  // Apply all current filters
-  const applyCurrentFilters = (customSearchTerm = null) => {
-    const filters = {
-      searchTerm: customSearchTerm !== null ? customSearchTerm : searchTerm,
-      category: selectedCategory,
-      priceRange,
-      location,
-      sortBy,
-      availability,
-      rating,
-      verifiedOnly
-    };
-    onFilter(filters);
-  };
-
-  const handleSearch = () => {
+  const handleSearch = useCallback(() => {
     if (searchTerm.trim()) {
       saveSearchToHistory(searchTerm);
     }
     setShowSuggestions(false);
     applyCurrentFilters();
-  };
+  }, [searchTerm, saveSearchToHistory, applyCurrentFilters]);
 
   const handleSuggestionClick = (suggestion) => {
     setSearchTerm(suggestion);
@@ -776,4 +773,4 @@ const SearchAndFilter = ({ onSearch, onFilter, categories, isOpen, onToggle }) =
   );
 };
 
-export default SearchAndFilter;
+export default React.memo(SearchAndFilter);

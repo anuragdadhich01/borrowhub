@@ -1,20 +1,61 @@
 import React from 'react';
-import { Link } from 'react-router-dom'; // Import Link
-import './ItemCard.css';
+import { Link } from 'react-router-dom';
+import { 
+  Card, 
+  CardContent, 
+  Typography, 
+  Box 
+} from '@mui/material';
+import LazyImage from './LazyImage';
 
-const ItemCard = ({ item }) => {
+const ItemCard = React.memo(({ item }) => {
   return (
-    // Wrap the entire card in a Link component
-    <Link to={`/item/${item._id}`} className="card-link">
-      <div className="card">
-        <img src={item.imageUrl} alt={item.name} className="card-img" />
-        <div className="card-body">
-          <h3 className="card-title">{item.name}</h3>
-          <p className="card-price">₹{item.dailyRate} / day</p>
-        </div>
-      </div>
-    </Link>
+    <Card 
+      component={Link} 
+      to={`/item/${item._id}`} 
+      sx={{ 
+        textDecoration: 'none',
+        color: 'inherit',
+        margin: 2,
+        maxWidth: 300,
+        boxShadow: 2,
+        '&:hover': {
+          boxShadow: 4,
+          transform: 'translateY(-2px)',
+        },
+        transition: 'all 0.3s ease-in-out'
+      }}
+    >
+      <LazyImage
+        src={item.imageUrl}
+        alt={item.name}
+        height={200}
+      />
+      <CardContent>
+        <Typography 
+          variant="h6" 
+          component="h3" 
+          sx={{ 
+            mb: 1,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {item.name}
+        </Typography>
+        <Typography 
+          variant="h6" 
+          color="primary" 
+          sx={{ fontWeight: 'bold' }}
+        >
+          ₹{item.dailyRate} / day
+        </Typography>
+      </CardContent>
+    </Card>
   );
-};
+});
+
+ItemCard.displayName = 'ItemCard';
 
 export default ItemCard;
