@@ -143,58 +143,105 @@ async function handleStaticAsset(request) {
   }
 }
 
-// Handle API requests with network-first strategy
+// Handle API requests with network-first strategy and retry logic
 async function handleAPIRequest(request) {
-  try {
-    const networkResponse = await fetch(request);
-    
-    // Cache successful GET responses
-    if (networkResponse.status === 200 && request.method === 'GET') {
-      const cache = await caches.open(API_CACHE_NAME);
-      cache.put(request, networkResponse.clone());
-    }
-    
-    return networkResponse;
-  } catch (error) {
-    console.log('[SW] Network failed for API request, trying cache...');
-    
-    // Fallback to cache for GET requests
-    if (request.method === 'GET') {
-      const cache = await caches.open(API_CACHE_NAME);
-      const cachedResponse = await cache.match(request);
+  const maxRetries = 3;
+  let retryCount = 0;
+  
+  while (retryCount < maxRetries) {
+    try {
+      const networkResponse = await fetch(request.clone());
       
-      if (cachedResponse) {
-        return cachedResponse;
+      // Cache successful GET responses
+      if (networkResponse.status === 200 && request.method === 'GET') {
+        const cache = await caches.open(API_CACHE_NAME);
+        cache.put(request, networkResponse.clone());
       }
+      
+      return networkResponse;
+    } catch (error) {
+      retryCount++;
+      console.log(`[SW] API request failed (attempt ${retryCount}/${maxRetries}):`, error);
+      
+      if (retryCount < maxRetries) {
+        // Exponential backoff: wait 1s, 2s, 4s
+        await new Promise(resolve => setTimeout(resolve, Math.pow(2, retryCount) * 1000));
+        continue;
+      }
+      
+      // All retries failed, try cache
+      console.log('[SW] All retries failed, trying cache...');
+      
+      // Fallback to cache for GET requests
+      if (request.method === 'GET') {
+        const cache = await caches.open(API_CACHE_NAME);
+        const cachedResponse = await cache.match(request);
+        
+        if (cachedResponse) {
+          // Add a header to indicate this is from cache
+          const headers = new Headers(cachedResponse.headers);
+          headers.set('X-Served-From-Cache', 'true');
+          headers.set('X-Cache-Date', cachedResponse.headers.get('date') || 'unknown');
+          
+          return new Response(cachedResponse.body, {
+            status: cachedResponse.status,
+            statusText: cachedResponse.statusText,
+            headers: headers
+          });
+        }
+      }
+      
+      // Return offline response for failed API requests
+      return new Response(
+        JSON.stringify({ 
+          error: 'NetworkError', 
+          message: 'Unable to connect to the server. Please check your internet connection.',
+          offline: true,
+          timestamp: new Date().toISOString()
+        }),
+        { 
+          status: 503,
+          statusText: 'Service Unavailable',
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Error-Type': 'network-failure'
+          }
+        }
+      );
     }
-    
-    // Return offline response for failed API requests
-    return new Response(
-      JSON.stringify({ 
-        error: 'Offline', 
-        message: 'This feature is not available offline' 
-      }),
-      { 
-        status: 503,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
   }
 }
 
-// Handle images with stale-while-revalidate strategy
+// Handle images with stale-while-revalidate strategy and retry logic
 async function handleImageRequest(request) {
   const cache = await caches.open(DYNAMIC_CACHE_NAME);
   const cachedResponse = await cache.match(request);
   
-  // Fetch in background for revalidation
-  const fetchPromise = fetch(request).then((networkResponse) => {
-    if (networkResponse.status === 200) {
-      cache.put(request, networkResponse.clone());
+  // Fetch in background for revalidation with retry logic
+  const fetchPromise = (async () => {
+    let retryCount = 0;
+    const maxRetries = 2;
+    
+    while (retryCount < maxRetries) {
+      try {
+        const networkResponse = await fetch(request.clone());
+        if (networkResponse.status === 200) {
+          cache.put(request, networkResponse.clone());
+          return networkResponse;
+        }
+        return networkResponse;
+      } catch (error) {
+        retryCount++;
+        if (retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+          continue;
+        }
+        throw error;
+      }
     }
-    return networkResponse;
-  }).catch(() => {
+  })().catch(() => {
     // Ignore network errors for background updates
+    console.log('[SW] Background image fetch failed, using cache');
   });
   
   // Return cached version immediately if available
@@ -206,10 +253,21 @@ async function handleImageRequest(request) {
   try {
     return await fetchPromise;
   } catch (error) {
+    console.log('[SW] Image fetch failed:', error);
     // Return placeholder image for failed image loads
     return new Response(
-      '<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg"><rect width="100%" height="100%" fill="#f0f0f0"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="#999">Image Offline</text></svg>',
-      { headers: { 'Content-Type': 'image/svg+xml' } }
+      `<svg width="300" height="200" xmlns="http://www.w3.org/2000/svg">
+        <rect width="100%" height="100%" fill="#f5f5f5"/>
+        <text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="#9ca3af" font-family="system-ui, sans-serif" font-size="14">
+          Image Unavailable
+        </text>
+      </svg>`,
+      { 
+        headers: { 
+          'Content-Type': 'image/svg+xml',
+          'X-Fallback-Image': 'true'
+        } 
+      }
     );
   }
 }
