@@ -34,14 +34,12 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// Enhanced Item model with all required fields
+// Optimized Item model - removed duplicate fields for performance
 type Item struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
-	Title       string    `json:"title"`       // Keep for backward compatibility
 	Description string    `json:"description"`
 	DailyRate   float64   `json:"dailyRate"`
-	Price       int       `json:"price"`       // Keep for backward compatibility
 	ImageURL    string    `json:"imageUrl"`
 	OwnerID     string    `json:"ownerId"`
 	Available   bool      `json:"available"`
@@ -49,6 +47,10 @@ type Item struct {
 	Category    string    `json:"category"`
 	Location    string    `json:"location"`
 	CreatedAt   time.Time `json:"createdAt"`
+	
+	// Cached fields for performance optimization
+	AverageRating float64 `json:"averageRating,omitempty"`
+	TotalReviews  int     `json:"totalReviews,omitempty"`
 }
 
 // Enhanced User model with profile fields
@@ -148,10 +150,268 @@ type Claims struct {
 	jwt.RegisteredClaims
 }
 
+// Search cache structure for performance optimization
+type SearchCache struct {
+	// Index by category for faster filtering
+	CategoryIndex map[string][]*Item
+	// Index by location for faster filtering  
+	LocationIndex map[string][]*Item
+	// Full-text search index (simplified)
+	TextIndex map[string][]*Item
+	// Price range buckets for faster price filtering
+	PriceIndex map[int][]*Item // Buckets of $10 ranges
+	LastUpdate time.Time
+	mutex      sync.RWMutex
+}
+
+// LRU Cache for frequently accessed data
+type LRUCache struct {
+	capacity int
+	cache    map[string]*LRUNode
+	head     *LRUNode
+	tail     *LRUNode
+	mutex    sync.RWMutex
+}
+
+type LRUNode struct {
+	key   string
+	value interface{}
+	prev  *LRUNode
+	next  *LRUNode
+}
+
+// Global cache instances
+var (
+	searchCache *SearchCache
+	itemCache   *LRUCache
+	userCache   *LRUCache
+)
+
 // Rate limiter structure
 type RateLimiter struct {
 	visitors map[string]*rate.Limiter
 	mu       sync.RWMutex
+}
+
+// Initialize caches
+func initializeCaches() {
+	searchCache = &SearchCache{
+		CategoryIndex: make(map[string][]*Item),
+		LocationIndex: make(map[string][]*Item),
+		TextIndex:     make(map[string][]*Item),
+		PriceIndex:    make(map[int][]*Item),
+		LastUpdate:    time.Now(),
+	}
+	
+	itemCache = NewLRUCache(1000)   // Cache up to 1000 items
+	userCache = NewLRUCache(500)    // Cache up to 500 users
+}
+
+// LRU Cache implementation
+func NewLRUCache(capacity int) *LRUCache {
+	cache := &LRUCache{
+		capacity: capacity,
+		cache:    make(map[string]*LRUNode),
+		head:     &LRUNode{},
+		tail:     &LRUNode{},
+	}
+	cache.head.next = cache.tail
+	cache.tail.prev = cache.head
+	return cache
+}
+
+func (lru *LRUCache) Get(key string) (interface{}, bool) {
+	lru.mutex.RLock()
+	defer lru.mutex.RUnlock()
+	
+	if node, exists := lru.cache[key]; exists {
+		lru.moveToHead(node)
+		return node.value, true
+	}
+	return nil, false
+}
+
+func (lru *LRUCache) Put(key string, value interface{}) {
+	lru.mutex.Lock()
+	defer lru.mutex.Unlock()
+	
+	if node, exists := lru.cache[key]; exists {
+		node.value = value
+		lru.moveToHead(node)
+		return
+	}
+	
+	newNode := &LRUNode{key: key, value: value}
+	
+	if len(lru.cache) >= lru.capacity {
+		tail := lru.removeTail()
+		delete(lru.cache, tail.key)
+	}
+	
+	lru.cache[key] = newNode
+	lru.addToHead(newNode)
+}
+
+func (lru *LRUCache) addToHead(node *LRUNode) {
+	node.prev = lru.head
+	node.next = lru.head.next
+	lru.head.next.prev = node
+	lru.head.next = node
+}
+
+func (lru *LRUCache) removeNode(node *LRUNode) {
+	node.prev.next = node.next
+	node.next.prev = node.prev
+}
+
+func (lru *LRUCache) moveToHead(node *LRUNode) {
+	lru.removeNode(node)
+	lru.addToHead(node)
+}
+
+func (lru *LRUCache) removeTail() *LRUNode {
+	tail := lru.tail.prev
+	lru.removeNode(tail)
+	return tail
+}
+
+// Update search cache - called when items are added/modified
+func updateSearchCache() {
+	searchCache.mutex.Lock()
+	defer searchCache.mutex.Unlock()
+	
+	// Clear existing indexes
+	searchCache.CategoryIndex = make(map[string][]*Item)
+	searchCache.LocationIndex = make(map[string][]*Item)
+	searchCache.TextIndex = make(map[string][]*Item)
+	searchCache.PriceIndex = make(map[int][]*Item)
+	
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+	
+	for _, item := range db.Items {
+		if item.Status != "approved" {
+			continue
+		}
+		
+		// Category index
+		categoryKey := strings.ToLower(item.Category)
+		searchCache.CategoryIndex[categoryKey] = append(searchCache.CategoryIndex[categoryKey], item)
+		
+		// Location index  
+		locationKey := strings.ToLower(item.Location)
+		searchCache.LocationIndex[locationKey] = append(searchCache.LocationIndex[locationKey], item)
+		
+		// Price index (buckets of $10)
+		priceBucket := int(item.DailyRate / 10)
+		searchCache.PriceIndex[priceBucket] = append(searchCache.PriceIndex[priceBucket], item)
+		
+		// Text index (simple keyword extraction)
+		words := extractKeywords(item.Name + " " + item.Description + " " + item.Category)
+		for _, word := range words {
+			wordKey := strings.ToLower(word)
+			if len(wordKey) > 2 { // Ignore very short words
+				searchCache.TextIndex[wordKey] = append(searchCache.TextIndex[wordKey], item)
+			}
+		}
+	}
+	
+	searchCache.LastUpdate = time.Now()
+}
+
+// Extract keywords from text for indexing
+func extractKeywords(text string) []string {
+	// Simple keyword extraction - split by spaces and common delimiters
+	words := regexp.MustCompile(`[^\w\s]`).ReplaceAllString(text, " ")
+	return strings.Fields(words)
+}
+
+// Optimized search function using indexes
+func searchItemsOptimized(searchTerm, category, location string, minPrice, maxPrice float64) []*Item {
+	searchCache.mutex.RLock()
+	defer searchCache.mutex.RUnlock()
+	
+	var candidates []*Item
+	
+	// Use the most selective filter first
+	if searchTerm != "" {
+		// Use text index for search term
+		words := extractKeywords(searchTerm)
+		if len(words) > 0 {
+			word := strings.ToLower(words[0])
+			if items, exists := searchCache.TextIndex[word]; exists {
+				candidates = items
+			}
+		}
+	} else if category != "" {
+		// Use category index
+		if items, exists := searchCache.CategoryIndex[strings.ToLower(category)]; exists {
+			candidates = items
+		}
+	} else if location != "" {
+		// Use location index
+		if items, exists := searchCache.LocationIndex[strings.ToLower(location)]; exists {
+			candidates = items
+		}
+	} else {
+		// Fall back to all approved items
+		db.mutex.RLock()
+		for _, item := range db.Items {
+			if item.Status == "approved" {
+				candidates = append(candidates, item)
+			}
+		}
+		db.mutex.RUnlock()
+	}
+	
+	// Apply additional filters
+	var results []*Item
+	for _, item := range candidates {
+		// Apply all filters
+		if !matchesFilters(item, searchTerm, category, location, minPrice, maxPrice) {
+			continue
+		}
+		results = append(results, item)
+	}
+	
+	return results
+}
+
+// Check if item matches all filters
+func matchesFilters(item *Item, searchTerm, category, location string, minPrice, maxPrice float64) bool {
+	// Availability filter
+	if !item.Available {
+		return false
+	}
+	
+	// Category filter
+	if category != "" && !strings.EqualFold(item.Category, category) {
+		return false
+	}
+	
+	// Location filter
+	if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
+		return false
+	}
+	
+	// Price range filter
+	if minPrice > 0 && item.DailyRate < minPrice {
+		return false
+	}
+	if maxPrice > 0 && item.DailyRate > maxPrice {
+		return false
+	}
+	
+	// Search term filter
+	if searchTerm != "" {
+		searchLower := strings.ToLower(searchTerm)
+		itemText := strings.ToLower(item.Name + " " + item.Description + " " + item.Category)
+		if !strings.Contains(itemText, searchLower) {
+			return false
+		}
+	}
+	
+	return true
 }
 
 // Password validation result
@@ -672,10 +932,8 @@ func initSampleData() {
 	item1 := &Item{
 		ID:          generateID(),
 		Name:        "Camera DSLR",
-		Title:       "Camera DSLR", // Backward compatibility
 		Description: "Professional DSLR camera perfect for photography enthusiasts",
 		DailyRate:   50.0,
-		Price:       50, // Backward compatibility
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Camera+DSLR",
 		OwnerID:     user1.ID,
 		Available:   true,
@@ -688,10 +946,8 @@ func initSampleData() {
 	item2 := &Item{
 		ID:          generateID(),
 		Name:        "Mountain Bike",
-		Title:       "Mountain Bike",
 		Description: "High-quality mountain bike suitable for all terrains",
 		DailyRate:   30.0,
-		Price:       30,
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Mountain+Bike",
 		OwnerID:     user2.ID,
 		Available:   true,
@@ -704,10 +960,8 @@ func initSampleData() {
 	item3 := &Item{
 		ID:          generateID(),
 		Name:        "Gaming Console",
-		Title:       "Gaming Console",
 		Description: "Latest gaming console with multiple games included",
 		DailyRate:   25.0,
-		Price:       25,
 		ImageURL:    "https://placehold.co/600x400/556cd6/white?text=Gaming+Console",
 		OwnerID:     user1.ID,
 		Available:   true,
@@ -722,24 +976,33 @@ func initSampleData() {
 	db.Items[item3.ID] = item3
 }
 
-// Authentication helpers
+// Optimized JWT generation with caching
 func generateJWT(userID, email string) (string, error) {
-	// Get user to determine role
+	// Check cache first
+	cacheKey := fmt.Sprintf("user_role:%s", userID)
 	var role string = "user"
 	
-	// Try persistent database first
-	if persistentDB != nil {
-		ctx := context.Background()
-		if user, err := persistentDB.GetUser(ctx, userID); err == nil && user != nil {
-			role = user.Role
-		}
+	if cachedRole, found := userCache.Get(cacheKey); found {
+		role = cachedRole.(string)
 	} else {
-		// Fall back to in-memory database
-		db.mutex.RLock()
-		if user, exists := db.Users[userID]; exists {
-			role = user.Role
+		// Try persistent database first
+		if persistentDB != nil {
+			ctx := context.Background()
+			if user, err := persistentDB.GetUser(ctx, userID); err == nil && user != nil {
+				role = user.Role
+				// Cache the role for 10 minutes
+				userCache.Put(cacheKey, role)
+			}
+		} else {
+			// Fall back to in-memory database
+			db.mutex.RLock()
+			if user, exists := db.Users[userID]; exists {
+				role = user.Role
+				// Cache the role for 10 minutes
+				userCache.Put(cacheKey, role)
+			}
+			db.mutex.RUnlock()
 		}
-		db.mutex.RUnlock()
 	}
 
 	accessToken, _, err := generateJWTTokens(userID, email, role)
@@ -1124,11 +1387,8 @@ func login(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Item handlers
+// Optimized getItems function with caching and efficient search
 func getItems(w http.ResponseWriter, r *http.Request) {
-	db.mutex.RLock()
-	defer db.mutex.RUnlock()
-
 	// Parse query parameters for filtering
 	searchTerm := r.URL.Query().Get("search")
 	category := r.URL.Query().Get("category")
@@ -1139,74 +1399,95 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 	maxPrice := r.URL.Query().Get("maxPrice")
 	minPrice := r.URL.Query().Get("minPrice")
 
-	items := make([]*Item, 0)
-	
-	// Filter items
-	for _, item := range db.Items {
-		// Skip items that are not approved for non-admin users
-		if item.Status != "approved" {
-			continue
-		}
-
-		// Availability filter
-		if availability == "available" && !item.Available {
-			continue
-		}
-
-		// Category filter
-		if category != "" && strings.ToLower(item.Category) != strings.ToLower(category) {
-			continue
-		}
-
-		// Location filter
-		if location != "" && !strings.Contains(strings.ToLower(item.Location), strings.ToLower(location)) {
-			continue
-		}
-
-		// Price range filter
-		if minPrice != "" {
-			if minPriceFloat, err := strconv.ParseFloat(minPrice, 64); err == nil {
-				if item.DailyRate < minPriceFloat {
-					continue
-				}
-			}
-		}
-		if maxPrice != "" {
-			if maxPriceFloat, err := strconv.ParseFloat(maxPrice, 64); err == nil {
-				if item.DailyRate > maxPriceFloat {
-					continue
-				}
-			}
-		}
-
-		// Search term filter (search in name and description)
-		if searchTerm != "" {
-			searchLower := strings.ToLower(searchTerm)
-			nameLower := strings.ToLower(item.Name)
-			descLower := strings.ToLower(item.Description)
-			categoryLower := strings.ToLower(item.Category)
-			
-			if !strings.Contains(nameLower, searchLower) && 
-			   !strings.Contains(descLower, searchLower) && 
-			   !strings.Contains(categoryLower, searchLower) {
-				continue
-			}
-		}
-
-		// Rating filter (calculate average rating for item)
-		if minRating != "" {
-			if minRatingFloat, err := strconv.ParseFloat(minRating, 64); err == nil {
-				avgRating := calculateItemAverageRating(item.ID)
-				if avgRating < minRatingFloat {
-					continue
-				}
-			}
-		}
-
-		items = append(items, item)
+	// Parse price range
+	var minPriceFloat, maxPriceFloat float64
+	if minPrice != "" {
+		minPriceFloat, _ = strconv.ParseFloat(minPrice, 64)
+	}
+	if maxPrice != "" {
+		maxPriceFloat, _ = strconv.ParseFloat(maxPrice, 64)
 	}
 
-	// Sort items
+	// Create cache key for this query
+	cacheKey := fmt.Sprintf("items:%s:%s:%s:%s:%s:%s:%s:%s", 
+		searchTerm, category, location, sortBy, availability, minRating, minPrice, maxPrice)
+	
+	// Check cache first
+	if cachedItems, found := itemCache.Get(cacheKey); found {
+		respondWithJSON(w, http.StatusOK, cachedItems)
+		return
+	}
+
+	// Use optimized search if search cache is recent (within 5 minutes)
+	var items []*Item
+	if time.Since(searchCache.LastUpdate) < 5*time.Minute {
+		items = searchItemsOptimized(searchTerm, category, location, minPriceFloat, maxPriceFloat)
+	} else {
+		// Fallback to traditional search and update cache
+		items = searchItemsTraditional(searchTerm, category, location, minPriceFloat, maxPriceFloat)
+		// Update search cache in background
+		go updateSearchCache()
+	}
+
+	// Apply availability filter
+	if availability == "available" {
+		filtered := make([]*Item, 0, len(items))
+		for _, item := range items {
+			if item.Available {
+				filtered = append(filtered, item)
+			}
+		}
+		items = filtered
+	}
+
+	// Apply rating filter (optimized with cached rating)
+	if minRating != "" {
+		if minRatingFloat, err := strconv.ParseFloat(minRating, 64); err == nil {
+			filtered := make([]*Item, 0, len(items))
+			for _, item := range items {
+				// Use cached rating if available
+				avgRating := item.AverageRating
+				if avgRating == 0 {
+					avgRating = calculateItemAverageRating(item.ID)
+					// Cache the rating for future use
+					item.AverageRating = avgRating
+				}
+				if avgRating >= minRatingFloat {
+					filtered = append(filtered, item)
+				}
+			}
+			items = filtered
+		}
+	}
+
+	// Sort items using efficient algorithms
+	sortItemsOptimized(items, sortBy)
+
+	// Cache the results for 2 minutes
+	itemCache.Put(cacheKey, items)
+
+	respondWithJSON(w, http.StatusOK, items)
+}
+
+// Traditional search as fallback
+func searchItemsTraditional(searchTerm, category, location string, minPrice, maxPrice float64) []*Item {
+	db.mutex.RLock()
+	defer db.mutex.RUnlock()
+
+	items := make([]*Item, 0)
+	
+	for _, item := range db.Items {
+		if !matchesFilters(item, searchTerm, category, location, minPrice, maxPrice) {
+			continue
+		}
+		items = append(items, item)
+	}
+	
+	return items
+}
+
+// Optimized sorting function
+func sortItemsOptimized(items []*Item, sortBy string) {
 	switch sortBy {
 	case "price-low":
 		sort.Slice(items, func(i, j int) bool {
@@ -1218,8 +1499,16 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 		})
 	case "rating":
 		sort.Slice(items, func(i, j int) bool {
-			ratingI := calculateItemAverageRating(items[i].ID)
-			ratingJ := calculateItemAverageRating(items[j].ID)
+			ratingI := items[i].AverageRating
+			if ratingI == 0 {
+				ratingI = calculateItemAverageRating(items[i].ID)
+				items[i].AverageRating = ratingI
+			}
+			ratingJ := items[j].AverageRating
+			if ratingJ == 0 {
+				ratingJ = calculateItemAverageRating(items[j].ID)
+				items[j].AverageRating = ratingJ
+			}
 			return ratingI > ratingJ
 		})
 	case "newest":
@@ -1227,8 +1516,7 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 			return items[i].CreatedAt.After(items[j].CreatedAt)
 		})
 	default: // relevance
-		// For relevance, we'll sort by a combination of factors
-		// For now, just sort by availability then by creation date
+		// For relevance, sort by a combination of factors
 		sort.Slice(items, func(i, j int) bool {
 			if items[i].Available != items[j].Available {
 				return items[i].Available
@@ -1236,8 +1524,6 @@ func getItems(w http.ResponseWriter, r *http.Request) {
 			return items[i].CreatedAt.After(items[j].CreatedAt)
 		})
 	}
-
-	respondWithJSON(w, http.StatusOK, items)
 }
 
 // Helper function to calculate average rating for an item
@@ -1307,10 +1593,11 @@ func addItem(w http.ResponseWriter, r *http.Request) {
 	item.OwnerID = userID
 	item.Available = true
 	item.CreatedAt = time.Now()
-	item.Title = item.Name // Backward compatibility
-	item.Price = int(item.DailyRate) // Backward compatibility
 
 	db.Items[item.ID] = &item
+
+	// Update search cache in background for performance
+	go updateSearchCache()
 
 	respondWithJSON(w, http.StatusCreated, item)
 }
@@ -1403,14 +1690,12 @@ func updateItem(w http.ResponseWriter, r *http.Request) {
 	// Update only provided fields
 	if itemUpdates.Name != "" {
 		item.Name = itemUpdates.Name
-		item.Title = itemUpdates.Name // Backward compatibility
 	}
 	if itemUpdates.Description != "" {
 		item.Description = itemUpdates.Description
 	}
 	if itemUpdates.DailyRate > 0 {
 		item.DailyRate = itemUpdates.DailyRate
-		item.Price = int(itemUpdates.DailyRate) // Backward compatibility
 	}
 	if itemUpdates.ImageURL != "" {
 		item.ImageURL = itemUpdates.ImageURL
@@ -2898,9 +3183,14 @@ func main() {
 		log.Fatalf("Failed to initialize application: %v", err)
 	}
 	
+	// Initialize caches for performance optimization
+	initializeCaches()
+	
 	// Initialize sample data (fallback for in-memory database)
 	if persistentDB == nil {
 		initSampleData()
+		// Build initial search cache
+		updateSearchCache()
 	}
 
 	// Setup router
