@@ -74,11 +74,11 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: 'LOGIN_START' });
     try {
       const response = await axios.post('/login', { email, password });
-      const { token, user } = response.data;
+      const { accessToken, user } = response.data;
       
       dispatch({ 
         type: 'LOGIN_SUCCESS', 
-        payload: { token, user } 
+        payload: { token: accessToken, user } 
       });
       
       return { success: true };
@@ -96,11 +96,11 @@ export const AuthProvider = ({ children }) => {
     dispatch({ type: 'LOGIN_START' });
     try {
       const response = await axios.post('/register', userData);
-      const { token, user } = response.data;
+      const { accessToken, user } = response.data;
       
       dispatch({ 
         type: 'LOGIN_SUCCESS', 
-        payload: { token, user } 
+        payload: { token: accessToken, user } 
       });
       
       return { success: true };
