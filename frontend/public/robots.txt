@@ -1,0 +1,23 @@
+User-agent: *
+Allow: /
+
+# Allow search engines to crawl all pages
+Allow: /items
+Allow: /about
+Allow: /how-it-works
+Allow: /terms
+Allow: /register
+Allow: /login
+
+# Disallow admin and private areas
+Disallow: /admin
+Disallow: /profile
+Disallow: /bookings
+Disallow: /messages
+Disallow: /api/
+
+# Sitemap location
+Sitemap: https://borrowhubb.live/sitemap.xml
+
+# Crawl delay (optional, in seconds)
+Crawl-delay: 1

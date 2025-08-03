@@ -18,6 +18,13 @@ backend/bin/
 backend/build/
 backend/borrowhub
 backend/borrowhub.exe
+backend/borrowhub-*
+
+# PWA build artifacts
+frontend/public/sw.js.map
+
+# Performance monitoring artifacts
+performance-*.json
 
 # Log files
 *.log

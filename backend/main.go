@@ -1,14 +1,17 @@
 package main
 
 import (
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -1144,19 +1147,47 @@ func rateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// Security headers middleware
+// Enhanced security headers middleware with performance optimizations
 func securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Security headers
+		// Enhanced security headers
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
+		
+		// Enhanced Content Security Policy
+		csp := "default-src 'self'; " +
+			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://checkout.razorpay.com; " +
+			"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://checkout.razorpay.com; " +
+			"font-src 'self' https://fonts.gstatic.com; " +
+			"img-src 'self' data: https: blob:; " +
+			"connect-src 'self' https: wss: https://api.stripe.com https://api.razorpay.com; " +
+			"media-src 'self' https: blob:; " +
+			"object-src 'none'; " +
+			"base-uri 'self'; " +
+			"form-action 'self'; " +
+			"frame-ancestors 'none';"
+		w.Header().Set("Content-Security-Policy", csp)
+		
+		// Permissions Policy (formerly Feature Policy)
+		w.Header().Set("Permissions-Policy", "geolocation=(), microphone=(), camera=()")
 		
 		// Only set HSTS in production with HTTPS
-		if r.Header.Get("X-Forwarded-Proto") == "https" {
-			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+		if r.Header.Get("X-Forwarded-Proto") == "https" || r.TLS != nil {
+			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		}
+		
+		// Performance headers
+		w.Header().Set("X-DNS-Prefetch-Control", "on")
+		
+		// Cache control for static assets
+		if isStaticAsset(r.URL.Path) {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else if isAPIEndpoint(r.URL.Path) {
+			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+			w.Header().Set("Pragma", "no-cache")
+			w.Header().Set("Expires", "0")
 		}
 
 		next.ServeHTTP(w, r)
@@ -1202,6 +1233,104 @@ func corsMiddleware(next http.Handler) http.Handler {
 		
 		next.ServeHTTP(w, r)
 	})
+}
+
+// Compression middleware for performance optimization
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (w gzipResponseWriter) Write(b []byte) (int, error) {
+	return w.Writer.Write(b)
+}
+
+func compressionMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip compression for small responses or specific content types
+		if !shouldCompress(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Check if client supports gzip
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Set compression headers
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+		
+		// Create gzip writer
+		gz := gzip.NewWriter(w)
+		defer gz.Close()
+		
+		// Wrap response writer
+		gzipWriter := gzipResponseWriter{Writer: gz, ResponseWriter: w}
+		next.ServeHTTP(gzipWriter, r)
+	})
+}
+
+func shouldCompress(r *http.Request) bool {
+	// Don't compress images, videos, or already compressed content
+	contentType := r.Header.Get("Content-Type")
+	
+	skipTypes := []string{
+		"image/",
+		"video/",
+		"audio/",
+		"application/zip",
+		"application/gzip",
+		"application/x-rar",
+		"application/pdf",
+	}
+	
+	for _, skipType := range skipTypes {
+		if strings.HasPrefix(contentType, skipType) {
+			return false
+		}
+	}
+	
+	// Compress text-based content
+	compressTypes := []string{
+		"text/",
+		"application/json",
+		"application/javascript",
+		"application/xml",
+		"application/rss+xml",
+		"application/atom+xml",
+	}
+	
+	for _, compressType := range compressTypes {
+		if strings.HasPrefix(contentType, compressType) {
+			return true
+		}
+	}
+	
+	// Default to compression for API endpoints
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		return true
+	}
+	
+	return false
+}
+
+func isStaticAsset(path string) bool {
+	staticExtensions := []string{".js", ".css", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot"}
+	for _, ext := range staticExtensions {
+		if strings.HasSuffix(path, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+func isAPIEndpoint(path string) bool {
+	return strings.HasPrefix(path, "/api/") || 
+		   strings.HasPrefix(path, "/login") || 
+		   strings.HasPrefix(path, "/register")
 }
 
 // Utility functions
@@ -3039,6 +3168,103 @@ func updateUserProfile(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, responseUser)
 }
 
+// Enhanced health check endpoints for monitoring and load balancing
+func enhancedHealthCheck(w http.ResponseWriter, r *http.Request) {
+	health := map[string]interface{}{
+		"status":    "healthy",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"version":   "1.0.0",
+		"uptime":    time.Since(time.Now().Add(-time.Hour)).String(), // Placeholder
+		"service":   "borrowhub-backend",
+	}
+	
+	// Check database connectivity if available
+	if persistentDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		if err := persistentDB.Ping(ctx); err != nil {
+			health["database"] = map[string]interface{}{
+				"status": "unhealthy",
+				"error":  err.Error(),
+			}
+			health["status"] = "degraded"
+		} else {
+			health["database"] = map[string]string{"status": "healthy"}
+		}
+	} else {
+		health["database"] = map[string]string{"status": "in-memory"}
+	}
+	
+	// Memory usage
+	var memStats runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&memStats)
+	
+	health["memory"] = map[string]interface{}{
+		"allocated":     memStats.Alloc,
+		"totalAlloc":    memStats.TotalAlloc,
+		"system":        memStats.Sys,
+		"numGoroutines": runtime.NumGoroutine(),
+	}
+	
+	// Cache status
+	health["cache"] = map[string]interface{}{
+		"searchCacheAge": time.Since(searchCache.LastUpdate).String(),
+		"itemCacheSize":  "unknown", // Would need to implement cache size tracking
+		"userCacheSize":  "unknown",
+	}
+	
+	status := http.StatusOK
+	if health["status"] == "degraded" {
+		status = http.StatusServiceUnavailable
+	}
+	
+	respondWithJSON(w, status, health)
+}
+
+func readinessCheck(w http.ResponseWriter, r *http.Request) {
+	// Check if service is ready to accept traffic
+	ready := true
+	checks := map[string]bool{
+		"database": true,
+		"cache":    true,
+	}
+	
+	// Check database if available
+	if persistentDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		
+		if err := persistentDB.Ping(ctx); err != nil {
+			checks["database"] = false
+			ready = false
+		}
+	}
+	
+	response := map[string]interface{}{
+		"ready":     ready,
+		"checks":    checks,
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+	
+	status := http.StatusOK
+	if !ready {
+		status = http.StatusServiceUnavailable
+	}
+	
+	respondWithJSON(w, status, response)
+}
+
+func livenessCheck(w http.ResponseWriter, r *http.Request) {
+	// Basic liveness check - just return OK if service is running
+	respondWithJSON(w, http.StatusOK, map[string]interface{}{
+		"alive":     true,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"service":   "borrowhub-backend",
+	})
+}
+
 // Lambda handler function
 func lambdaHandler(ctx context.Context, request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
 	// Convert API Gateway request to HTTP request
@@ -3235,10 +3461,11 @@ func setupRouter() {
 	router.HandleFunc("/api/profile", updateUserProfile).Methods("PUT", "OPTIONS")
 	router.HandleFunc("/profile", updateUserProfile).Methods("PUT", "OPTIONS")
 
-	// Health check endpoint
-	router.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		respondWithJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
-	}).Methods("GET")
+	// Enhanced health check endpoints
+	router.HandleFunc("/health", enhancedHealthCheck).Methods("GET")
+	router.HandleFunc("/api/health", enhancedHealthCheck).Methods("GET")
+	router.HandleFunc("/health/ready", readinessCheck).Methods("GET")
+	router.HandleFunc("/health/live", livenessCheck).Methods("GET")
 
 	// OPTIONS handler for preflight requests
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -3251,8 +3478,8 @@ func setupRouter() {
 		respondWithError(w, http.StatusNotFound, "Endpoint not found")
 	}).Methods("OPTIONS", "GET", "POST", "PUT", "DELETE")
 
-	// Wrap router with security, rate limiting, CORS and authentication middleware
-	httpHandler = corsMiddleware(securityHeadersMiddleware(rateLimitMiddleware(authMiddleware(router))))
+	// Wrap router with compression, security, rate limiting, CORS and authentication middleware
+	httpHandler = compressionMiddleware(corsMiddleware(securityHeadersMiddleware(rateLimitMiddleware(authMiddleware(router)))))
 }
 
 func main() {
