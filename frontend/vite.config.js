@@ -41,6 +41,14 @@ export default defineConfig({
         secure: false,
       },
     },
+    // Ensure proper MIME types for dev server
+    mimeTypes: {
+      'js': 'application/javascript',
+      'jsx': 'application/javascript', 
+      'mjs': 'application/javascript',
+      'ts': 'application/javascript',
+      'tsx': 'application/javascript'
+    }
   },
   
   build: {
@@ -75,7 +83,7 @@ export default defineConfig({
             : 'chunk';
           return `assets/${facadeModuleId}-[hash].js`;
         },
-        // Optimize asset file names
+        // Optimize asset file names  
         assetFileNames: (assetInfo) => {
           if (assetInfo.name.endsWith('.css')) {
             return 'assets/styles-[hash].css';
@@ -84,6 +92,8 @@ export default defineConfig({
         },
         // Optimize entry file names
         entryFileNames: 'assets/[name]-[hash].js',
+        // Ensure proper format
+        format: 'es'
       },
     },
     
@@ -148,6 +158,8 @@ export default defineConfig({
     minifySyntax: true,
     // Minify whitespace
     minifyWhitespace: true,
+    // Ensure proper JS output
+    target: 'es2018',
   },
   
   // CSS optimization
