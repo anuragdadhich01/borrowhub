@@ -23,6 +23,7 @@ import (
 	"borrowhub/config"
 	"borrowhub/database"
 	"borrowhub/database/seeds"
+	"borrowhub/storage"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -531,6 +532,9 @@ var (
 	persistentDB database.Database
 	appConfig    *config.AppConfig
 	
+	// S3 storage integration
+	s3Storage *storage.S3Storage
+	
 	// Security components
 	jwtSecret      = []byte("your-secret-key") // Will be updated from config
 	jwtRefreshSecret = []byte("your-refresh-secret-key")
@@ -740,6 +744,17 @@ func initializeApp() error {
 	
 	// Update JWT secret from config
 	jwtSecret = []byte(appConfig.JWTSecret)
+	
+	// Initialize S3 storage if in AWS environment
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" || os.Getenv("S3_BUCKET_NAME") != "" {
+		s3Storage, err = storage.NewS3Storage()
+		if err != nil {
+			log.Printf("Warning: Failed to initialize S3 storage: %v", err)
+			// Don't fail initialization if S3 is not available
+		} else {
+			log.Println("S3 storage initialized successfully")
+		}
+	}
 	
 	// Initialize database based on configuration
 	persistentDB = database.NewPostgreSQLDatabase(&appConfig.Database)
@@ -2995,7 +3010,7 @@ func getAdminLogs(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, logs)
 }
 
-// Image upload handler (basic implementation)
+// Enhanced image upload handler with S3 integration
 func uploadImage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
@@ -3029,27 +3044,49 @@ func uploadImage(w http.ResponseWriter, r *http.Request) {
 		"image/jpg":  true,
 		"image/png":  true,
 		"image/gif":  true,
+		"image/webp": true,
 	}
 
 	contentType := handler.Header.Get("Content-Type")
 	if !allowedTypes[contentType] {
-		respondWithError(w, http.StatusBadRequest, "Invalid file type. Only JPEG, PNG, and GIF allowed")
+		respondWithError(w, http.StatusBadRequest, "Invalid file type. Only JPEG, PNG, GIF, and WebP allowed")
 		return
 	}
 
-	// In a real implementation, you would:
-	// 1. Save the file to cloud storage (AWS S3, Google Cloud Storage, etc.)
-	// 2. Generate a proper URL
-	// 3. Optimize/resize the image
-	
-	// For now, we'll simulate a successful upload
-	imageID := generateID()
-	imageURL := fmt.Sprintf("https://placehold.co/600x400/556cd6/white?text=Image+%s", imageID)
+	var response map[string]interface{}
 
-	response := map[string]interface{}{
-		"imageId":  imageID,
-		"imageUrl": imageURL,
-		"message":  "Image uploaded successfully",
+	// Try S3 upload first if available
+	if s3Storage != nil {
+		ctx := r.Context()
+		result, err := s3Storage.UploadFile(ctx, file, handler, "public/images")
+		if err != nil {
+			log.Printf("S3 upload failed: %v", err)
+			respondWithError(w, http.StatusInternalServerError, "Failed to upload image")
+			return
+		}
+
+		response = map[string]interface{}{
+			"imageId":    generateID(),
+			"imageUrl":   result.URL,
+			"s3Key":      result.Key,
+			"fileName":   result.FileName,
+			"size":       result.Size,
+			"provider":   "s3",
+			"message":    "Image uploaded successfully to S3",
+		}
+	} else {
+		// Fallback to placeholder for development
+		imageID := generateID()
+		imageURL := fmt.Sprintf("https://placehold.co/600x400/556cd6/white?text=Image+%s", imageID)
+
+		response = map[string]interface{}{
+			"imageId":  imageID,
+			"imageUrl": imageURL,
+			"fileName": handler.Filename,
+			"size":     handler.Size,
+			"provider": "placeholder",
+			"message":  "Image uploaded successfully (development mode)",
+		}
 	}
 
 	respondWithJSON(w, http.StatusOK, response)
