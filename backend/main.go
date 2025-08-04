@@ -3251,6 +3251,104 @@ func enhancedHealthCheck(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, status, health)
 }
 
+// Performance metrics endpoint
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	
+	var metrics map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid metrics payload")
+		return
+	}
+	
+	// Log metrics for analysis (in production, you'd send to monitoring service)
+	log.Printf("Performance Metrics: %+v", metrics)
+	
+	// Here you could:
+	// 1. Send to AWS CloudWatch
+	// 2. Send to Datadog, New Relic, etc.
+	// 3. Store in database for analysis
+	// 4. Trigger alerts for performance issues
+	
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "metrics received",
+	})
+}
+
+// Error reporting endpoint
+func handleErrorReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	
+	var errorReport map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&errorReport); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid error report")
+		return
+	}
+	
+	// Log error for immediate attention
+	log.Printf("Frontend Error Report: %+v", errorReport)
+	
+	// Here you could:
+	// 1. Send to error tracking service (Sentry, Rollbar, etc.)
+	// 2. Store in database for analysis
+	// 3. Send alerts for critical errors
+	// 4. Generate error reports
+	
+	// Extract error details
+	if errorDetails, ok := errorReport["error"].(map[string]interface{}); ok {
+		errorType := errorDetails["type"]
+		message := errorDetails["message"]
+		
+		// Categorize and handle based on error type
+		switch errorType {
+		case "javascript":
+			log.Printf("JavaScript Error: %v", message)
+		case "unhandled-promise":
+			log.Printf("Unhandled Promise Rejection: %v", message)
+		case "network":
+			log.Printf("Network Error: %v", message)
+		default:
+			log.Printf("Unknown Error Type: %v - %v", errorType, message)
+		}
+	}
+	
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "error report received",
+	})
+}
+
+// CSP violation reporting endpoint
+func handleCSPReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	
+	var cspReport map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&cspReport); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid CSP report")
+		return
+	}
+	
+	// Log CSP violations
+	log.Printf("CSP Violation Report: %+v", cspReport)
+	
+	// Here you could:
+	// 1. Analyze CSP violations
+	// 2. Update CSP policies
+	// 3. Alert on security issues
+	
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "csp report received",
+	})
+}
+
 func readinessCheck(w http.ResponseWriter, r *http.Request) {
 	// Check if service is ready to accept traffic
 	ready := true
@@ -3494,6 +3592,11 @@ func setupRouter() {
 	router.HandleFunc("/api/health", enhancedHealthCheck).Methods("GET")
 	router.HandleFunc("/health/ready", readinessCheck).Methods("GET")
 	router.HandleFunc("/health/live", livenessCheck).Methods("GET")
+
+	// Monitoring and error tracking endpoints
+	router.HandleFunc("/api/metrics", handleMetrics).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/errors", handleErrorReport).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/csp-report", handleCSPReport).Methods("POST", "OPTIONS")
 
 	// OPTIONS handler for preflight requests
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
