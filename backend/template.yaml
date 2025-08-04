@@ -33,7 +33,8 @@ Resources:
   FileStorageBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: !Sub "${AWS::StackName}-borrowhub-files"
+      # Use hardcoded lowercase name to avoid S3 naming issues with stack names
+      BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -104,7 +105,6 @@ Resources:
           S3_BUCKET_NAME: !Ref FileStorageBucket
           JWT_SECRET: !Ref JWTSecret
           CORS_ALLOWED_ORIGINS: "https://borrowhubb.live,http://localhost:5173,http://127.0.0.1:5173"
-          AWS_REGION: !Ref AWS::Region
       Events:
         Api:
           Type: Api
