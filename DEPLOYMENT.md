@@ -13,6 +13,20 @@ BorrowHub is a full-stack web application for renting and lending items, built w
 - **CDN**: CloudFront (optional)
 - **Infrastructure**: AWS SAM (CloudFormation)
 
+## Recent Deployment Fixes (2024)
+
+### Critical Issues Resolved
+1. **CloudFormation Rollback Protection**: Added proper rollback configuration to prevent deployment failures
+2. **DynamoDB Table Safety**: Added deletion and update policies to prevent accidental data loss during stack updates
+3. **S3 Bucket Protection**: Added retention policies for file storage bucket
+4. **Deployment Configuration**: Streamlined samconfig.toml and GitHub Actions workflow for consistency
+
+### Deployment Safety Features
+- **Deletion Policies**: All critical resources (S3, DynamoDB) have `DeletionPolicy: Retain`
+- **Update Policies**: Tables have `UpdateReplacePolicy: Retain` to prevent replacement
+- **Rollback Enabled**: Stack deployments can safely rollback on failure
+- **Drift Detection**: Automated script to check for configuration drift
+
 ## Performance Optimizations Implemented
 
 ### Frontend Optimizations
@@ -35,6 +49,18 @@ BorrowHub is a full-stack web application for renting and lending items, built w
 - SAM CLI installed
 - Node.js 18+ and npm
 - Go 1.24.5+
+
+## Deployment Health Check
+
+Before deploying, run the health check script to validate your environment:
+
+```bash
+# Make script executable
+chmod +x scripts/check-deployment.sh
+
+# Run health check
+./scripts/check-deployment.sh
+```
 
 ## Quick Deployment
 
@@ -305,10 +331,49 @@ cd frontend
 npm test
 ```
 
+## Deployment Safety & Best Practices
+
+### CloudFormation Safety Measures
+All critical resources are protected with:
+- **DeletionPolicy: Retain** - Prevents accidental resource deletion
+- **UpdateReplacePolicy: Retain** - Prevents data loss during updates
+- **Rollback Enabled** - Safe recovery from failed deployments
+
+### Resource Protection
+Protected resources include:
+- S3 File Storage Bucket
+- All DynamoDB Tables (Users, Items, Bookings, Payments)
+- Lambda Functions (with proper IAM policies)
+
+### Deployment Validation
+Before each deployment, run:
+```bash
+# Health check with drift detection
+./scripts/check-deployment.sh
+
+# Template validation
+sam validate --template-file backend/template.yaml --region us-east-1
+```
+
+### Stack Update Strategy
+1. **Pre-deployment**: Run health check script
+2. **Deploy with safety**: Uses samconfig.toml settings with rollback enabled
+3. **Post-deployment**: Verify all resources and check for drift
+4. **Monitor**: CloudWatch alarms for ongoing health monitoring
+
+### Emergency Recovery
+If deployment fails:
+1. Stack will automatically rollback (rollback enabled)
+2. Data is preserved (all critical resources have retention policies)
+3. Use health check script to validate recovery
+4. Check CloudFormation events for failure cause
+
 ## Production Checklist
 
 - [ ] Set production JWT secret
 - [ ] Configure proper CORS origins
+- [ ] Run deployment health check
+- [ ] Verify resource retention policies
 - [ ] Set up CloudWatch alarms
 - [ ] Configure backup strategies
 - [ ] Test error monitoring
@@ -317,6 +382,7 @@ npm test
 - [ ] Configure CDN (optional)
 - [ ] Load test the application
 - [ ] Set up automated deployments
+- [ ] Document disaster recovery procedures
 
 ## Support
 
