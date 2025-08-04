@@ -32,6 +32,8 @@ Resources:
   # S3 Bucket for file storage
   FileStorageBucket:
     Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       # Use hardcoded lowercase name to avoid S3 naming issues with stack names
       BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}"
@@ -114,6 +116,8 @@ Resources:
 
   ItemsTable:
     Type: AWS::Serverless::SimpleTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${AWS::StackName}-items"
       PrimaryKey:
@@ -122,6 +126,8 @@ Resources:
 
   UsersTable:
     Type: AWS::Serverless::SimpleTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${AWS::StackName}-users"
       PrimaryKey:
@@ -130,6 +136,8 @@ Resources:
 
   BookingsTable:
     Type: AWS::Serverless::SimpleTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${AWS::StackName}-bookings"
       PrimaryKey:
@@ -138,6 +146,8 @@ Resources:
 
   PaymentsTable:
     Type: AWS::Serverless::SimpleTable
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
       TableName: !Sub "${AWS::StackName}-payments"
       PrimaryKey:

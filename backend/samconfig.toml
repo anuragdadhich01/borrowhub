@@ -5,8 +5,14 @@ stack_name = "BorrowHubStack"
 resolve_s3 = true
 s3_prefix = "BorrowHubStack"
 region = "us-east-1"
-confirm_changeset = true
+confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 image_repositories = []
 # Enable rollback for safer deployments - fixes DynamoDB table replacement issues
 disable_rollback = false
+# Force upload ensures latest code is deployed
+force_upload = true
+# Parameter overrides for production deployment
+parameter_overrides = [
+    "JWTSecret=change-this-in-production-jwt-secret-key"
+]
