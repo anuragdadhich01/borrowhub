@@ -116,6 +116,43 @@ build_backend() {
     cd ..
 }
 
+# Check stack status and handle rollback
+check_stack_status() {
+    log_info "Checking stack status..."
+    
+    local status=$(aws cloudformation describe-stacks \
+        --stack-name "${STACK_NAME}" \
+        --region "${REGION}" \
+        --query "Stacks[0].StackStatus" \
+        --output text 2>/dev/null || echo "NOT_FOUND")
+    
+    case "$status" in
+        "CREATE_COMPLETE"|"UPDATE_COMPLETE")
+            log_info "Stack is in healthy state: ${status}"
+            ;;
+        "UPDATE_ROLLBACK_COMPLETE"|"UPDATE_ROLLBACK_IN_PROGRESS")
+            log_warning "Stack is in rollback state: ${status}"
+            log_info "This may indicate a previous deployment failure. Proceeding with deployment..."
+            ;;
+        "UPDATE_ROLLBACK_FAILED"|"CREATE_FAILED"|"UPDATE_FAILED")
+            log_error "Stack is in failed state: ${status}"
+            log_error "Manual intervention may be required before redeployment"
+            return 1
+            ;;
+        "CREATE_IN_PROGRESS"|"UPDATE_IN_PROGRESS")
+            log_warning "Stack operation in progress: ${status}"
+            log_warning "Please wait for current operation to complete"
+            return 1
+            ;;
+        "NOT_FOUND")
+            log_info "Stack does not exist - this is normal for initial deployment"
+            ;;
+        *)
+            log_warning "Unknown stack status: ${status}"
+            ;;
+    esac
+}
+
 # Create S3 bucket for deployment artifacts if it doesn't exist
 create_deployment_bucket() {
     log_info "Checking deployment bucket..."
@@ -140,9 +177,31 @@ create_deployment_bucket() {
     fi
 }
 
+# Validate template before deployment
+validate_template() {
+    log_info "Validating CloudFormation template..."
+    
+    cd backend
+    
+    if sam validate --template-file template.yaml --region "${REGION}" &>/dev/null; then
+        log_success "Template validation passed"
+    else
+        log_error "Template validation failed"
+        cd ..
+        exit 1
+    fi
+    
+    cd ..
+}
+
 # Deploy backend using SAM
 deploy_backend() {
     log_info "Deploying backend..."
+    
+    # Check stack status before deployment
+    if aws cloudformation describe-stacks --stack-name "${STACK_NAME}" --region "${REGION}" &> /dev/null; then
+        check_stack_status || exit 1
+    fi
     
     cd backend
     
@@ -327,6 +386,7 @@ main() {
     fi
     
     check_prerequisites
+    validate_template
     create_deployment_bucket
     build_backend
     deploy_backend
