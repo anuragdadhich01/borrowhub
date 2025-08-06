@@ -18,26 +18,6 @@ services:
     networks:
       - borrowhub
 
-  # MySQL for testing compatibility
-  mysql:
-    image: mysql:8.0
-    container_name: borrowhub-mysql
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpassword
-      MYSQL_DATABASE: borrowhub
-      MYSQL_USER: borrowhub
-      MYSQL_PASSWORD: password123
-      MYSQL_CHARSET: utf8mb4
-      MYSQL_COLLATION: utf8mb4_unicode_ci
-    ports:
-      - "3306:3306"
-    volumes:
-      - mysql_data:/var/lib/mysql
-      - ./database/init:/docker-entrypoint-initdb.d
-    networks:
-      - borrowhub
-    command: --default-authentication-plugin=mysql_native_password
-
   # Redis for caching and sessions
   redis:
     image: redis:7-alpine
@@ -67,27 +47,8 @@ services:
     depends_on:
       - postgres
 
-  # phpMyAdmin for MySQL management
-  phpmyadmin:
-    image: phpmyadmin/phpmyadmin:latest
-    container_name: borrowhub-phpmyadmin
-    environment:
-      PMA_HOST: mysql
-      PMA_PORT: 3306
-      PMA_USER: borrowhub
-      PMA_PASSWORD: password123
-      MYSQL_ROOT_PASSWORD: rootpassword
-    ports:
-      - "8080:80"
-    networks:
-      - borrowhub
-    depends_on:
-      - mysql
-
 volumes:
   postgres_data:
-    driver: local
-  mysql_data:
     driver: local
   redis_data:
     driver: local

@@ -8,10 +8,9 @@ Globals:
   Api:
     Cors:
       AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-      AllowHeaders: "'Content-Type,Authorization,Accept,X-Requested-With,X-Custom-Header'"
-      AllowOrigin: "'*'"
-      AllowCredentials: false
-      MaxAge: "'600'"
+      AllowHeaders: "'Content-Type,Authorization,Accept,X-Requested-With'"
+      AllowOrigin: "'https://borrowhubb.live'"
+      AllowCredentials: true
 
 Resources:
   BorrowHubbFunction:
