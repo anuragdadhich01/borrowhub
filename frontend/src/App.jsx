@@ -5,6 +5,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import PrivateRoute from './components/PrivateRoute';
 import ErrorBoundary from './components/ErrorBoundary';
+import DemoBanner from './components/DemoBanner';
 import { NotificationProvider } from './components/NotificationSystem';
 import { Box, Container, Typography, CircularProgress } from '@mui/material';
 
@@ -25,6 +26,7 @@ const HowItWorksPage = React.lazy(() => import('./pages/HowItWorksPage'));
 const CategoryPage = React.lazy(() => import('./pages/CategoryPage'));
 const AllItemsPage = React.lazy(() => import('./pages/AllItemsPage'));
 const TermsOfServicePage = React.lazy(() => import('./pages/TermsOfServicePage'));
+const NotificationsPage = React.lazy(() => import('./pages/NotificationsPage'));
 
 // Loading fallback component
 const PageLoader = () => (
@@ -57,6 +59,7 @@ function App() {
             backgroundColor: 'background.default'
           }}>
             <Navbar />
+            <DemoBanner />
             <Box component="main" sx={{ 
               flexGrow: 1,
               pt: { xs: 0, sm: 0 }, // Remove top padding on mobile since navbar is smaller
@@ -163,6 +166,9 @@ function App() {
                   >
                     <PlaceholderPage title="Help Center" description="Find answers to frequently asked questions" />
                   </Container>
+                } />
+                <Route path="/notifications" element={
+                  <NotificationsPage />
                 } />
                 <Route path="/safety" element={
                   <Container 

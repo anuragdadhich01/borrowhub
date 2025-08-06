@@ -88,9 +88,8 @@ const Navbar = () => {
   };
 
   const handleNotifications = () => {
-    console.log('Notifications clicked');
     setMobileDrawerOpen(false);
-    navigate('/messages');
+    navigate('/notifications');
   };
 
   const handleSearch = () => {
