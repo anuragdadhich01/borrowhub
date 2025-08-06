@@ -35,8 +35,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      # Use hardcoded lowercase name to avoid S3 naming issues with stack names
-      BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}"
+      BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -119,7 +118,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "${AWS::StackName}-items"
+      TableName: !Sub "borrowhub-items-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -135,7 +134,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "${AWS::StackName}-users"
+      TableName: !Sub "borrowhub-users-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
       AttributeDefinitions:
         - AttributeName: email
           AttributeType: S
@@ -151,7 +150,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "${AWS::StackName}-bookings"
+      TableName: !Sub "borrowhub-bookings-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -167,7 +166,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "${AWS::StackName}-payments"
+      TableName: !Sub "borrowhub-payments-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
