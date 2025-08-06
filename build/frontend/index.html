@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    
+    <!-- Enhanced Viewport and Mobile Optimization -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="format-detection" content="telephone=no" />
+    
+    <!-- PWA and App Identity -->
+    <title>BorrowHub - Rent & Lend Items</title>
+    <meta name="description" content="A modern platform to rent and lend items in your community. Find what you need or earn by sharing what you have." />
+    <meta name="keywords" content="rental, lending, sharing economy, community, marketplace, items" />
+    <meta name="author" content="BorrowHub" />
+    <meta name="application-name" content="BorrowHub" />
+    <meta name="apple-mobile-web-app-title" content="BorrowHub" />
+    
+    <!-- Theme and Branding -->
+    <meta name="theme-color" content="#556cd6" />
+    <meta name="msapplication-TileColor" content="#556cd6" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    
+    <!-- Icons and Favicons -->
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/icons/icon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/icons/icon-16x16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/icons/icon-192x192.png" />
+    <link rel="mask-icon" href="/icons/safari-pinned-tab.svg" color="#556cd6" />
+    
+    <!-- Microsoft Tiles -->
+    <meta name="msapplication-config" content="/browserconfig.xml" />
+    <meta name="msapplication-TileImage" content="/icons/icon-144x144.png" />
+    
+    <!-- Open Graph / Social Media -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="BorrowHub - Rent & Lend Items" />
+    <meta property="og:description" content="A modern platform to rent and lend items in your community. Find what you need or earn by sharing what you have." />
+    <meta property="og:image" content="/icons/icon-512x512.png" />
+    <meta property="og:url" content="https://borrowhubb.live" />
+    <meta property="og:site_name" content="BorrowHub" />
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="BorrowHub - Rent & Lend Items" />
+    <meta name="twitter:description" content="A modern platform to rent and lend items in your community" />
+    <meta name="twitter:image" content="/icons/icon-512x512.png" />
+    
+    <!-- Performance and Preconnections -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
+    <link rel="dns-prefetch" href="https://fonts.gstatic.com" />
+    
+    <!-- Optimized Font Loading -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+    
+    <!-- Preload Critical Resources -->
+    <link rel="modulepreload" href="data:text/jsx;base64,Ly8gZnJvbnRlbmQvc3JjL21haW4uanN4CgppbXBvcnQgUmVhY3QgZnJvbSAncmVhY3QnOwppbXBvcnQgUmVhY3RET00gZnJvbSAncmVhY3QtZG9tL2NsaWVudCc7CmltcG9ydCBBcHAgZnJvbSAnLi9BcHAnOwppbXBvcnQgJy4vaW5kZXguY3NzJzsKaW1wb3J0IHsgQXV0aFByb3ZpZGVyIH0gZnJvbSAnLi9jb250ZXh0L0F1dGhDb250ZXh0JzsKaW1wb3J0IHsgQ3VzdG9tVGhlbWVQcm92aWRlciB9IGZyb20gJy4vY29tcG9uZW50cy9UaGVtZVByb3ZpZGVyJzsKClJlYWN0RE9NLmNyZWF0ZVJvb3QoZG9jdW1lbnQuZ2V0RWxlbWVudEJ5SWQoJ3Jvb3QnKSkucmVuZGVyKAogIDxSZWFjdC5TdHJpY3RNb2RlPgogICAgPEN1c3RvbVRoZW1lUHJvdmlkZXI+CiAgICAgIDxBdXRoUHJvdmlkZXI+CiAgICAgICAgPEFwcCAvPgogICAgICA8L0F1dGhQcm92aWRlcj4KICAgIDwvQ3VzdG9tVGhlbWVQcm92aWRlcj4KICA8L1JlYWN0LlN0cmljdE1vZGU+Cik7" />
+    
+    <!-- Content Security Policy -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: blob:; connect-src 'self' https: wss:; media-src 'self' https: blob:;" />
+    
+    <!-- Loading Optimization -->
+    <style>
+      /* Critical CSS for loading state */
+      #root {
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      }
+      
+      .loading-container {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+        flex-direction: column;
+      }
+      
+      .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(255, 255, 255, 0.3);
+        border-top: 3px solid white;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+        margin-bottom: 1rem;
+      }
+      
+      @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+      
+      .loading-text {
+        font-size: 1.2rem;
+        font-weight: 500;
+        opacity: 0.9;
+      }
+    </style>
+    <script type="module" crossorigin src="/assets/main-D3cJJDFx.js"></script>
+    <link rel="modulepreload" crossorigin href="/assets/chunk-YALnMFZb.js">
+    <link rel="modulepreload" crossorigin href="/assets/chunk-BJx4NElN.js">
+    <link rel="modulepreload" crossorigin href="/assets/chunk-B5eAhNgW.js">
+    <link rel="modulepreload" crossorigin href="/assets/chunk-D0_MaXyL.js">
+    <link rel="modulepreload" crossorigin href="/assets/chunk-BBQUzN5O.js">
+    <link rel="stylesheet" crossorigin href="/assets/styles-C6G_3qQV.css">
+  </head>
+  <body>
+    <div id="root">
+      <!-- Loading state while React loads -->
+      <div class="loading-container">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Loading BorrowHub...</div>
+      </div>
+    </div>
+    
+    <!-- PWA Installation and Service Worker Registration -->
+    <script>
+      // Register service worker for PWA functionality
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then((registration) => {
+              console.log('SW registered: ', registration);
+              
+              // Check for updates
+              registration.addEventListener('updatefound', () => {
+                const newWorker = registration.installing;
+                if (newWorker) {
+                  newWorker.addEventListener('statechange', () => {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      // New content available, refresh to update
+                      if (confirm('New version available! Refresh to update?')) {
+                        window.location.reload();
+                      }
+                    }
+                  });
+                }
+              });
+            })
+            .catch((registrationError) => {
+              console.log('SW registration failed: ', registrationError);
+            });
+        });
+      }
+      
+      // PWA Install Prompt
+      let deferredPrompt;
+      
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        
+        // Show custom install button after a delay
+        setTimeout(() => {
+          if (deferredPrompt && !window.matchMedia('(display-mode: standalone)').matches) {
+            const installBanner = document.createElement('div');
+            installBanner.innerHTML = `
+              <div style="position: fixed; top: 0; left: 0; right: 0; background: #556cd6; color: white; padding: 12px; text-align: center; z-index: 10000; font-family: Inter, sans-serif;">
+                <span style="margin-right: 12px;">📱 Install BorrowHub for a better experience!</span>
+                <button onclick="installApp()" style="background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 12px; border-radius: 4px; margin-right: 8px; cursor: pointer;">Install</button>
+                <button onclick="this.parentElement.parentElement.remove()" style="background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white; padding: 6px 12px; border-radius: 4px; cursor: pointer;">Later</button>
+              </div>
+            `;
+            document.body.appendChild(installBanner);
+          }
+        }, 5000);
+      });
+      
+      window.installApp = async () => {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          const { outcome } = await deferredPrompt.userChoice;
+          console.log(`User response to the install prompt: ${outcome}`);
+          deferredPrompt = null;
+          
+          // Remove install banner
+          const banner = document.querySelector('[style*="position: fixed"]');
+          if (banner) banner.remove();
+        }
+      };
+      
+      // Track PWA usage
+      window.addEventListener('appinstalled', (evt) => {
+        console.log('PWA was installed');
+        // Analytics tracking could go here
+      });
+      
+      // Performance monitoring
+      window.addEventListener('load', () => {
+        // Measure performance metrics
+        if ('performance' in window) {
+          const perfData = performance.getEntriesByType('navigation')[0];
+          console.log('Page load time:', perfData.loadEventEnd - perfData.fetchStart, 'ms');
+          
+          // Report to analytics service in production
+          if (perfData.loadEventEnd - perfData.fetchStart > 3000) {
+            console.warn('Page load time exceeds 3 seconds');
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

@@ -123,9 +123,15 @@ export default defineConfig({
           return 'assets/[name]-[hash:8].[ext]';
         },
         // Optimize entry file names
+<<<<<<< HEAD
+        entryFileNames: 'assets/[name]-[hash].js',
+        // Ensure proper format and MIME type
+        format: 'es',
+=======
         entryFileNames: 'assets/js/[name]-[hash:8].js',
         // Ensure proper format
         format: 'es'
+>>>>>>> d1772ed0fc6a5314995b443054ba13de8b6a1102
       },
     },
     

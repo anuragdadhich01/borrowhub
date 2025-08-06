@@ -1204,6 +1204,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		// Allow these origins
 		allowedOrigins := []string{
 			"https://borrowhubb.live",
+			"https://psflzclkbl.execute-api.us-east-1.amazonaws.com", // AWS API Gateway
 			"http://localhost:5173",
 			"http://127.0.0.1:5173",
 			"http://localhost:3000",
@@ -3416,7 +3417,7 @@ func lambdaHandler(ctx context.Context, request events.APIGatewayProxyRequest) (
 	httpHandler.ServeHTTP(recorder, req)
 
 	// Convert HTTP response to API Gateway response
-	response := httpResponseToAPIGatewayResponse(recorder)
+	response := httpResponseToAPIGatewayResponse(recorder, request)
 	
 	return response, nil
 }
@@ -3471,7 +3472,7 @@ func apiGatewayRequestToHTTPRequest(request events.APIGatewayProxyRequest) (*htt
 }
 
 // Convert HTTP response to API Gateway proxy response
-func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder) events.APIGatewayProxyResponse {
+func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder, event events.APIGatewayProxyRequest) events.APIGatewayProxyResponse {
 	headers := make(map[string]string)
 	multiValueHeaders := make(map[string][]string)
 
@@ -3485,7 +3486,32 @@ func httpResponseToAPIGatewayResponse(recorder *httptest.ResponseRecorder) event
 
 	// Ensure CORS headers are always present
 	if headers["Access-Control-Allow-Origin"] == "" {
-		headers["Access-Control-Allow-Origin"] = "https://borrowhubb.live"
+		// Check origin and set appropriate CORS header
+		origin := ""
+		if event.Headers != nil {
+			origin = event.Headers["origin"]
+			if origin == "" {
+				origin = event.Headers["Origin"]
+			}
+		}
+		
+		allowedOrigins := []string{
+			"https://borrowhubb.live",
+			"https://psflzclkbl.execute-api.us-east-1.amazonaws.com",
+		}
+		
+		originAllowed := false
+		for _, allowedOrigin := range allowedOrigins {
+			if origin == allowedOrigin {
+				headers["Access-Control-Allow-Origin"] = origin
+				originAllowed = true
+				break
+			}
+		}
+		
+		if !originAllowed {
+			headers["Access-Control-Allow-Origin"] = "https://borrowhubb.live"
+		}
 	}
 	if headers["Access-Control-Allow-Methods"] == "" {
 		headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
