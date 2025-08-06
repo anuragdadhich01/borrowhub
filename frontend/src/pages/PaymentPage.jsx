@@ -223,6 +223,16 @@ const PaymentPage = () => {
           Complete Payment
         </Typography>
         
+        {/* Demo Mode Alert for Payment */}
+        {!window.Razorpay && (
+          <Alert severity="warning" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              <strong>Demo Payment Mode:</strong> This is a demonstration. No actual payment will be processed. 
+              Click "Pay" to simulate a successful payment.
+            </Typography>
+          </Alert>
+        )}
+        
         {/* Payment Security Info */}
         <Paper sx={{ p: 3, mb: 3, backgroundColor: 'primary.light', color: 'primary.contrastText', borderRadius: 2 }}>
           <Stack direction="row" spacing={2} alignItems="center">
