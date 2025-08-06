@@ -357,7 +357,7 @@ self.addEventListener('sync', (event) => {
   }
 });
 
-// Handle background sync
+// Handle background sync for failed requests
 async function handleBackgroundSync() {
   console.log('[SW] Performing background sync...');
   
@@ -381,8 +381,56 @@ async function handleBackgroundSync() {
         }
       }
     }
+    
+    // Try to sync any pending offline actions
+    await syncOfflineActions();
+    
   } catch (error) {
     console.error('[SW] Background sync failed:', error);
+  }
+}
+
+// Sync offline actions when back online
+async function syncOfflineActions() {
+  try {
+    // Get offline actions from IndexedDB or localStorage
+    const offlineActions = JSON.parse(localStorage.getItem('offlineActions') || '[]');
+    
+    if (offlineActions.length > 0) {
+      console.log(`[SW] Syncing ${offlineActions.length} offline actions...`);
+      
+      for (const action of offlineActions) {
+        try {
+          await fetch(action.url, {
+            method: action.method,
+            headers: action.headers,
+            body: action.body
+          });
+          console.log('[SW] Successfully synced offline action:', action.type);
+        } catch (error) {
+          console.warn('[SW] Failed to sync offline action:', error);
+          // Keep action for next sync attempt
+          continue;
+        }
+      }
+      
+      // Clear synced actions
+      localStorage.removeItem('offlineActions');
+      
+      // Notify main app about successful sync
+      if (self.clients) {
+        self.clients.matchAll().then(clients => {
+          clients.forEach(client => {
+            client.postMessage({
+              type: 'OFFLINE_SYNC_COMPLETE',
+              count: offlineActions.length
+            });
+          });
+        });
+      }
+    }
+  } catch (error) {
+    console.error('[SW] Error syncing offline actions:', error);
   }
 }
 

@@ -8,11 +8,9 @@ import { AuthProvider } from './context/AuthContext';
 import { CustomThemeProvider } from './components/ThemeProvider';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <React.StrictMode>
-    <CustomThemeProvider>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </CustomThemeProvider>
-  </React.StrictMode>
+  <CustomThemeProvider>
+    <AuthProvider>
+      <App />
+    </AuthProvider>
+  </CustomThemeProvider>
 );

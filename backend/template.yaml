@@ -8,27 +8,104 @@ Globals:
   Api:
     Cors:
       AllowMethods: "'GET,POST,PUT,DELETE,OPTIONS'"
-      AllowHeaders: "'Content-Type,Authorization,Accept,X-Requested-With'"
+      AllowHeaders: "'Content-Type,Authorization,Accept,X-Requested-With,X-Custom-Header,Cache-Control,Pragma'"
       AllowOrigin: "'https://borrowhubb.live'"
       AllowCredentials: true
+      MaxAge: "'86400'"
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        CORS_ALLOWED_ORIGINS: "https://borrowhubb.live,http://localhost:5173,http://127.0.0.1:5173"
+        JWT_SECRET: !Ref JWTSecret
+        S3_BUCKET: !Ref FileStorageBucket
+
+Parameters:
+  JWTSecret:
+    Type: String
+    Default: "change-this-in-production-jwt-secret-key"
+    Description: "JWT secret key for token signing"
+    NoEcho: true
 
 Resources:
+  # S3 Bucket for file storage
+  FileStorageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+        BlockPublicPolicy: false
+        IgnorePublicAcls: false
+        RestrictPublicBuckets: false
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "https://borrowhubb.live"
+              - "http://localhost:5173"
+              - "http://127.0.0.1:5173"
+            MaxAge: 3600
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 30
+
+  # S3 Bucket Policy for public read access to images
+  FileStorageBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref FileStorageBucket
+      PolicyDocument:
+        Statement:
+          - Sid: PublicReadGetObject
+            Effect: Allow
+            Principal: "*"
+            Action:
+              - s3:GetObject
+            Resource: !Sub "${FileStorageBucket.Arn}/public/*"
+
   BorrowHubbFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: .
       Handler: bootstrap
       Runtime: provided.al2
-      Timeout: 10
+      Timeout: 30
+      MemorySize: 512
       Policies:
         - DynamoDBCrudPolicy:
             TableName: !Ref ItemsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref UsersTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BookingsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref PaymentsTable
+        - S3CrudPolicy:
+            BucketName: !Ref FileStorageBucket
       Environment:
         Variables:
           ITEMS_TABLE_NAME: !Ref ItemsTable
           USERS_TABLE_NAME: !Ref UsersTable
+          BOOKINGS_TABLE_NAME: !Ref BookingsTable
+          PAYMENTS_TABLE_NAME: !Ref PaymentsTable
+          S3_BUCKET_NAME: !Ref FileStorageBucket
+          JWT_SECRET: !Ref JWTSecret
+          CORS_ALLOWED_ORIGINS: "https://borrowhubb.live,http://localhost:5173,http://127.0.0.1:5173"
       Events:
         Api:
           Type: Api
@@ -37,22 +114,78 @@ Resources:
             Method: any
 
   ItemsTable:
-    Type: AWS::Serverless::SimpleTable
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      TableName: items
-      PrimaryKey:
-        Name: id
-        Type: String
+      TableName: !Sub "borrowhub-items-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
 
   UsersTable:
-    Type: AWS::Serverless::SimpleTable
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
     Properties:
-      TableName: users
-      PrimaryKey:
-        Name: email
-        Type: String
+      TableName: !Sub "borrowhub-users-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  BookingsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "borrowhub-bookings-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+
+  PaymentsTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "borrowhub-payments-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
 
 Outputs:
   BorrowHubApi:
     Description: "API Gateway endpoint URL for Prod stage for BorrowHub function"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod"
+    
+  S3BucketName:
+    Description: "S3 Bucket for file storage"
+    Value: !Ref FileStorageBucket
+    
+  S3BucketDomain:
+    Description: "S3 Bucket domain for file access"
+    Value: !Sub "${FileStorageBucket}.s3.${AWS::Region}.amazonaws.com"

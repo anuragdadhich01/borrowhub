@@ -35,7 +35,7 @@ jobs:
       - name: Build and Deploy Backend
         run: |
           sam build --use-container
-          sam deploy --no-confirm-changeset --no-fail-on-empty-changeset --stack-name BorrowHubStack --capabilities CAPABILITY_IAM --resolve-s3
+          sam deploy --no-fail-on-empty-changeset
         working-directory: backend
 
   deploy-frontend:

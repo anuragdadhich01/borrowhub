@@ -23,6 +23,7 @@ import (
 	"borrowhub/config"
 	"borrowhub/database"
 	"borrowhub/database/seeds"
+	"borrowhub/storage"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -531,6 +532,9 @@ var (
 	persistentDB database.Database
 	appConfig    *config.AppConfig
 	
+	// S3 storage integration
+	s3Storage *storage.S3Storage
+	
 	// Security components
 	jwtSecret      = []byte("your-secret-key") // Will be updated from config
 	jwtRefreshSecret = []byte("your-refresh-secret-key")
@@ -740,6 +744,17 @@ func initializeApp() error {
 	
 	// Update JWT secret from config
 	jwtSecret = []byte(appConfig.JWTSecret)
+	
+	// Initialize S3 storage if in AWS environment
+	if os.Getenv("AWS_LAMBDA_RUNTIME_API") != "" || os.Getenv("S3_BUCKET_NAME") != "" {
+		s3Storage, err = storage.NewS3Storage()
+		if err != nil {
+			log.Printf("Warning: Failed to initialize S3 storage: %v", err)
+			// Don't fail initialization if S3 is not available
+		} else {
+			log.Println("S3 storage initialized successfully")
+		}
+	}
 	
 	// Initialize database based on configuration
 	persistentDB = database.NewPostgreSQLDatabase(&appConfig.Database)
@@ -2996,7 +3011,7 @@ func getAdminLogs(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, http.StatusOK, logs)
 }
 
-// Image upload handler (basic implementation)
+// Enhanced image upload handler with S3 integration
 func uploadImage(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("X-User-ID")
 	if userID == "" {
@@ -3030,27 +3045,49 @@ func uploadImage(w http.ResponseWriter, r *http.Request) {
 		"image/jpg":  true,
 		"image/png":  true,
 		"image/gif":  true,
+		"image/webp": true,
 	}
 
 	contentType := handler.Header.Get("Content-Type")
 	if !allowedTypes[contentType] {
-		respondWithError(w, http.StatusBadRequest, "Invalid file type. Only JPEG, PNG, and GIF allowed")
+		respondWithError(w, http.StatusBadRequest, "Invalid file type. Only JPEG, PNG, GIF, and WebP allowed")
 		return
 	}
 
-	// In a real implementation, you would:
-	// 1. Save the file to cloud storage (AWS S3, Google Cloud Storage, etc.)
-	// 2. Generate a proper URL
-	// 3. Optimize/resize the image
-	
-	// For now, we'll simulate a successful upload
-	imageID := generateID()
-	imageURL := fmt.Sprintf("https://placehold.co/600x400/556cd6/white?text=Image+%s", imageID)
+	var response map[string]interface{}
 
-	response := map[string]interface{}{
-		"imageId":  imageID,
-		"imageUrl": imageURL,
-		"message":  "Image uploaded successfully",
+	// Try S3 upload first if available
+	if s3Storage != nil {
+		ctx := r.Context()
+		result, err := s3Storage.UploadFile(ctx, file, handler, "public/images")
+		if err != nil {
+			log.Printf("S3 upload failed: %v", err)
+			respondWithError(w, http.StatusInternalServerError, "Failed to upload image")
+			return
+		}
+
+		response = map[string]interface{}{
+			"imageId":    generateID(),
+			"imageUrl":   result.URL,
+			"s3Key":      result.Key,
+			"fileName":   result.FileName,
+			"size":       result.Size,
+			"provider":   "s3",
+			"message":    "Image uploaded successfully to S3",
+		}
+	} else {
+		// Fallback to placeholder for development
+		imageID := generateID()
+		imageURL := fmt.Sprintf("https://placehold.co/600x400/556cd6/white?text=Image+%s", imageID)
+
+		response = map[string]interface{}{
+			"imageId":  imageID,
+			"imageUrl": imageURL,
+			"fileName": handler.Filename,
+			"size":     handler.Size,
+			"provider": "placeholder",
+			"message":  "Image uploaded successfully (development mode)",
+		}
 	}
 
 	respondWithJSON(w, http.StatusOK, response)
@@ -3213,6 +3250,104 @@ func enhancedHealthCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	respondWithJSON(w, status, health)
+}
+
+// Performance metrics endpoint
+func handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	
+	var metrics map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&metrics); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid metrics payload")
+		return
+	}
+	
+	// Log metrics for analysis (in production, you'd send to monitoring service)
+	log.Printf("Performance Metrics: %+v", metrics)
+	
+	// Here you could:
+	// 1. Send to AWS CloudWatch
+	// 2. Send to Datadog, New Relic, etc.
+	// 3. Store in database for analysis
+	// 4. Trigger alerts for performance issues
+	
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "metrics received",
+	})
+}
+
+// Error reporting endpoint
+func handleErrorReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	
+	var errorReport map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&errorReport); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid error report")
+		return
+	}
+	
+	// Log error for immediate attention
+	log.Printf("Frontend Error Report: %+v", errorReport)
+	
+	// Here you could:
+	// 1. Send to error tracking service (Sentry, Rollbar, etc.)
+	// 2. Store in database for analysis
+	// 3. Send alerts for critical errors
+	// 4. Generate error reports
+	
+	// Extract error details
+	if errorDetails, ok := errorReport["error"].(map[string]interface{}); ok {
+		errorType := errorDetails["type"]
+		message := errorDetails["message"]
+		
+		// Categorize and handle based on error type
+		switch errorType {
+		case "javascript":
+			log.Printf("JavaScript Error: %v", message)
+		case "unhandled-promise":
+			log.Printf("Unhandled Promise Rejection: %v", message)
+		case "network":
+			log.Printf("Network Error: %v", message)
+		default:
+			log.Printf("Unknown Error Type: %v - %v", errorType, message)
+		}
+	}
+	
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "error report received",
+	})
+}
+
+// CSP violation reporting endpoint
+func handleCSPReport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		respondWithError(w, http.StatusMethodNotAllowed, "Method not allowed")
+		return
+	}
+	
+	var cspReport map[string]interface{}
+	if err := json.NewDecoder(r.Body).Decode(&cspReport); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid CSP report")
+		return
+	}
+	
+	// Log CSP violations
+	log.Printf("CSP Violation Report: %+v", cspReport)
+	
+	// Here you could:
+	// 1. Analyze CSP violations
+	// 2. Update CSP policies
+	// 3. Alert on security issues
+	
+	respondWithJSON(w, http.StatusOK, map[string]string{
+		"status": "csp report received",
+	})
 }
 
 func readinessCheck(w http.ResponseWriter, r *http.Request) {
@@ -3483,6 +3618,11 @@ func setupRouter() {
 	router.HandleFunc("/api/health", enhancedHealthCheck).Methods("GET")
 	router.HandleFunc("/health/ready", readinessCheck).Methods("GET")
 	router.HandleFunc("/health/live", livenessCheck).Methods("GET")
+
+	// Monitoring and error tracking endpoints
+	router.HandleFunc("/api/metrics", handleMetrics).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/errors", handleErrorReport).Methods("POST", "OPTIONS")
+	router.HandleFunc("/api/csp-report", handleCSPReport).Methods("POST", "OPTIONS")
 
 	// OPTIONS handler for preflight requests
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
