@@ -35,7 +35,8 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      # All lowercase, globally unique, no stack name variable
+      BucketName: !Sub "borrowhub-files-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
         BlockPublicAcls: false
         BlockPublicPolicy: false
@@ -118,7 +119,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "borrowhub-items-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      TableName: !Sub "borrowhub-items-${AWS::AccountId}-${AWS::Region}"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -134,7 +135,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "borrowhub-users-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      TableName: !Sub "borrowhub-users-${AWS::AccountId}-${AWS::Region}"
       AttributeDefinitions:
         - AttributeName: email
           AttributeType: S
@@ -150,7 +151,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "borrowhub-bookings-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      TableName: !Sub "borrowhub-bookings-${AWS::AccountId}-${AWS::Region}"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -166,7 +167,7 @@ Resources:
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
     Properties:
-      TableName: !Sub "borrowhub-payments-${AWS::AccountId}-${AWS::Region}-${AWS::StackName}"
+      TableName: !Sub "borrowhub-payments-${AWS::AccountId}-${AWS::Region}"
       AttributeDefinitions:
         - AttributeName: id
           AttributeType: S
@@ -188,4 +189,4 @@ Outputs:
     
   S3BucketDomain:
     Description: "S3 Bucket domain for file access"
-    Value: !Sub "${FileStorageBucket}.s3.${AWS::Region}.amazonaws.com"
+    Value: !Sub "${FileStorageBucket}.s3.${AWS::Region}.amazonaws.com" 
